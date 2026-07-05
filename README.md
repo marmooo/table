@@ -218,3 +218,7 @@ Main exports: `Column`, `TableOptions`, `ComponentOptions`, `SortOrder`,
 `RowData` is `Record<ColumnId, string | number | boolean | null | undefined>`.
 If a column needs to hold another type (e.g. `Date`), you'll need a
 `column.compare` for sorting and a custom `render`/`formatters` for display.
+
+## License
+
+MIT
