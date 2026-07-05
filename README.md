@@ -10,7 +10,7 @@ plugins/components that you can combine as needed.
 > loaded, but borders and spacing won't look right. If you want a fully custom
 > look, override it with the `render` options described below.
 
-## Install
+## Installation
 
 ```
 npm install @marmooo/table
