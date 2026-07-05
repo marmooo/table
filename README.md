@@ -19,7 +19,7 @@ npm install <package-name>
 ## Basic usage
 
 ```ts
-import { Table } from "table";
+import { Table } from "@marmooo/table";
 
 const table = new Table({
   data: [
@@ -47,7 +47,7 @@ Sorting, resizing, and cell editing are each independent plugins passed via
 `Sortable`, clicking a header does nothing).
 
 ```ts
-import { Editable, Resizable, Sortable, Table } from "table";
+import { Editable, Resizable, Sortable, Table } from "@marmooo/table";
 
 const table = new Table({ data, columns });
 const resizable = new Resizable(table);
