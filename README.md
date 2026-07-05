@@ -13,7 +13,7 @@ plugins/components that you can combine as needed.
 ## Install
 
 ```
-npm install <package-name>
+npm install @marmooo/table
 ```
 
 ## Basic usage
