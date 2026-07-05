@@ -1,0 +1,291 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head prefix="og: http://ogp.me/ns#">
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="description" content="A dependency-free HTML &lt;table&gt; library.">
+    <title>@marmooo/table</title>
+    <meta property="og:title" content="@marmooo/table">
+    <meta property="og:site_name" content="@marmooo/table">
+    <meta property="og:description" content="A dependency-free HTML &lt;table&gt; library.">
+    <meta property="og:type" content="website">
+    <meta property="og:url" content="https://marmooo.github.io/table/">
+    <meta property="og:image" content="https://marmooo.github.io/table/favicon/apple-touch-icon.png">
+    <meta name="twitter:card" content="summary">
+    <script>
+      (function() {
+        const saved = localStorage.getItem("darkMode");
+        const prefersDark = globalThis.matchMedia("(prefers-color-scheme: dark)").matches;
+        const theme = saved || (prefersDark ? "dark" : "light");
+        document.documentElement.setAttribute("data-bs-theme", theme);
+      })();
+    </script>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>@marmooo/table</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link id="highlightjs-theme" rel="stylesheet" href="">
+    <style>
+      html[data-bs-theme="dark"] .favicon { filter: invert(1) hue-rotate(180deg); }
+    </style>
+  </head>
+  <body data-bs-spy="scroll" data-bs-target="#sidebar-nav" data-bs-offset="90" tabindex="0">
+    <header>
+      <nav class="navbar navbar-expand bg-body-tertiary">
+        <div class="container">
+          <a class="navbar-brand" href="/table/">
+            <img class="favicon" alt="" src="/table/favicon/favicon.svg" width="32" height="32">
+            @marmooo/table
+          </a>
+          <div class="navbar-nav">
+            <a title="GitHub" href="https://github.com/marmooo/table" class="btn p-0">
+              <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 16 16" fill="currentColor">
+                <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8"></path>
+              </svg>
+            </a>
+            <button title="toggle dark-mode" id="toggleDarkMode" class="fs-4 btn p-0 ms-1">🌓</button>
+          </div>
+        </div>
+      </nav>
+    </header>
+    <main class="container">
+      <div class="row">
+
+        <nav class="col-md-3 col-lg-2 d-md-block bg-body-tertiary sidebar collapse border-end">
+          <div class="position-sticky pt-3" style="top: 1rem;">
+            <h6 class="px-3 mt-2 mb-1 text-body-secondary text-uppercase small">Examples</h6>
+            <ul class="nav flex-column" id="sidebar-nav">
+              <li class="nav-item"><a class="nav-link" href="#basic">1. Basic table</a></li>
+              <li class="nav-item"><a class="nav-link" href="#sortable">2. Sortable</a></li>
+              <li class="nav-item"><a class="nav-link" href="#actions">3. Non-sortable column + custom compare</a></li>
+              <li class="nav-item"><a class="nav-link" href="#search">4. Column search</a></li>
+              <li class="nav-item"><a class="nav-link" href="#pagination">5. Pagination</a></li>
+              <li class="nav-item"><a class="nav-link" href="#columns">6. Column selector</a></li>
+              <li class="nav-item"><a class="nav-link" href="#resizable">7. Resizable columns</a></li>
+              <li class="nav-item"><a class="nav-link" href="#editable">8. Editable cells</a></li>
+              <li class="nav-item"><a class="nav-link" href="#indicator">9. Custom sort indicator</a></li>
+              <li class="nav-item"><a class="nav-link" href="#setdata">10. setData()</a></li>
+              <li class="nav-item"><a class="nav-link" href="#combined">11. Everything together</a></li>
+            </ul>
+          </div>
+        </nav>
+
+        <div class="col-md-9 col-lg-10 ms-sm-auto px-md-4 py-3">
+
+          <div class="pb-3 mb-4 border-bottom">
+            <p class="lead">
+              @marmooo/table is a dependency-free HTML &lt;table&gt; library.
+            </p>
+            <p>Sorting, per-column search, pagination, column visibility, resizing, and cell editing
+            — each an opt-in plugin or component.
+            Every table on this page is a live, working instance.</p>
+            <div class="alert alert-secondary py-2 px-3 small mb-0 d-inline-block">
+              Built-in styling assumes Bootstrap is loaded (as it is on this page).
+            </div>
+          </div>
+
+          <section id="basic">
+            <h2 class="h5">1. Basic table</h2>
+            <p class="text-body-secondary">No plugins, no components — just <code>data</code> and <code>columns</code>. A column can supply <code>render(row, td)</code> to control how a cell is drawn.</p>
+            <pre class="bg-body-tertiary rounded p-3"><code>import { Editable, Resizable, Sortable, Table } from "@marmooo/table";
+// (the examples below reuse this same import)
+
+new Table({
+  data: tracks,
+  columns: [
+    { id: "title", name: "Title" },
+    { id: "artist", name: "Artist" },
+    { id: "duration", name: "Duration", render: (row, td) => {
+      td.textContent = formatDuration(row.duration);
+    } },
+  ],
+}).render(document.querySelector("#table-basic"));</code></pre>
+            <div class="border rounded p-3">
+              <table class="table table-striped align-middle mb-0" id="table-basic"></table>
+            </div>
+          </section>
+
+          <hr class="my-5">
+
+          <section id="sortable">
+            <h2 class="h5">2. Sortable</h2>
+            <p class="text-body-secondary">Click a header to sort, click again to reverse. Headers are also keyboard-focusable — try Tab then Enter or Space. The current column/direction is exposed via <code>aria-sort</code> and the arrow icon.</p>
+            <pre class="bg-body-tertiary rounded p-3"><code>const table = new Table({ data: tracks, columns });
+    table.options.plugins = [new Sortable(table)];
+    table.render(container);</code></pre>
+            <div class="border rounded p-3">
+              <table class="table table-striped align-middle mb-0" id="table-sortable"></table>
+            </div>
+          </section>
+
+          <hr class="my-5">
+
+          <section id="actions">
+            <h2 class="h5">3. Non-sortable column + custom compare</h2>
+            <p class="text-body-secondary"><code>sortable: false</code> keeps a column (like an action button) out of sorting entirely. <code>compare</code> lets a column define its own ascending-order comparator — useful for dates, which sort incorrectly as plain strings.</p>
+            <pre class="bg-body-tertiary rounded p-3"><code>{
+  id: "releasedAt",
+  name: "Released",
+  compare: (a, b) => new Date(a.releasedAt) - new Date(b.releasedAt),
+},
+{
+  id: "actions",
+  name: "",
+  sortable: false,
+  render: (row, td) => { td.appendChild(removeButton(row)); },
+}</code></pre>
+            <div class="border rounded p-3">
+              <table class="table table-striped align-middle mb-0" id="table-actions"></table>
+            </div>
+          </section>
+
+          <hr class="my-5">
+
+          <section id="search">
+            <h2 class="h5">4. Column search</h2>
+            <p class="text-body-secondary">Each column gets its own search input in the header (AND across columns, substring match within one). Typing something that matches nothing marks the offending input as invalid — try typing <code>zzz</code> in the Title box.</p>
+            <pre class="bg-body-tertiary rounded p-3"><code>new Table({
+  data: tracks,
+  columns,
+  components: { columnSearch: { placeholder: "Search…" } },
+}).render(container);</code></pre>
+            <div class="border rounded p-3">
+              <table class="table table-striped align-middle mb-0" id="table-search"></table>
+            </div>
+          </section>
+
+          <hr class="my-5">
+
+          <section id="pagination">
+            <h2 class="h5">5. Pagination</h2>
+            <p class="text-body-secondary">Set a <code>pageSize</code> and a container for the page controls. <code>table.pagination.goToPage(n)</code> and <code>getTotalPages()</code> are available for programmatic control.</p>
+            <pre class="bg-body-tertiary rounded p-3"><code>new Table({
+  data: manyTracks,
+  columns,
+  components: {
+    pagination: { pageSize: 5, container: paginationEl, maxPageButtons: 5 },
+  },
+}).render(container);</code></pre>
+            <div class="border rounded p-3">
+              <table class="table table-striped align-middle mb-0" id="table-pagination"></table>
+              <div id="pagination-basic" class="mt-3"></div>
+            </div>
+          </section>
+
+          <hr class="my-5">
+
+          <section id="columns">
+            <h2 class="h5">6. Column selector</h2>
+            <p class="text-body-secondary">Lets people show/hide columns from a checklist. Works together with <code>Resizable</code>, which auto-resets widths when visibility changes.</p>
+            <pre class="bg-body-tertiary rounded p-3"><code>new Table({
+  data: tracks,
+  columns,
+  components: { columnSelector: { container: selectorEl } },
+}).render(container);</code></pre>
+            <div class="border rounded p-3">
+              <div id="column-selector" class="mb-3"></div>
+              <table class="table table-striped align-middle mb-0" id="table-columns"></table>
+            </div>
+          </section>
+
+          <hr class="my-5">
+
+          <section id="resizable">
+            <h2 class="h5">7. Resizable columns</h2>
+            <p class="text-body-secondary">Drag a column border to resize it.</p>
+            <pre class="bg-body-tertiary rounded p-3"><code>const table = new Table({ data: tracks, columns });
+table.options.plugins = [new Resizable(table)];
+table.render(container);</code></pre>
+            <div class="border rounded p-3">
+              <table class="table table-striped align-middle mb-0" id="table-resizable"></table>
+            </div>
+          </section>
+
+          <hr class="my-5">
+
+          <section id="editable">
+            <h2 class="h5">8. Editable cells</h2>
+            <p class="text-body-secondary">Click any body cell to edit it in place. <code>Editable</code> doesn't write the value back into <code>data</code> — read it from the DOM (e.g. on blur) if you need to persist it.</p>
+            <pre class="bg-body-tertiary rounded p-3"><code>const table = new Table({ data: tracks, columns });
+table.options.plugins = [new Editable(table)];
+table.render(container);</code></pre>
+            <div class="border rounded p-3">
+              <table class="table table-striped align-middle mb-0" id="table-editable"></table>
+            </div>
+          </section>
+
+          <hr class="my-5">
+
+          <section id="indicator">
+            <h2 class="h5">9. Custom sort indicator</h2>
+            <p class="text-body-secondary"><code>components.sortIndicator.render</code> replaces the default arrow. It's called with the current direction and its return value replaces the old indicator — return <code>null</code> to hide it for a given state.</p>
+            <pre class="bg-body-tertiary rounded p-3"><code>components: {
+  sortIndicator: {
+    render: (direction) => {
+      if (direction === "none") return null;
+      const span = document.createElement("span");
+      span.textContent = direction === "ascending" ? " ▲" : " ▼";
+      return span;
+    },
+  },
+}</code></pre>
+            <div class="border rounded p-3">
+              <table class="table table-striped align-middle mb-0" id="table-custom-indicator"></table>
+            </div>
+          </section>
+
+          <hr class="my-5">
+
+          <section id="setdata">
+            <h2 class="h5">10. setData()</h2>
+            <p class="text-body-secondary">Swap the underlying rows at any time — existing filters/sort are re-applied and pagination resets to page 1.</p>
+            <pre class="bg-body-tertiary rounded p-3"><code>const table = new Table({ data: tracks, columns });
+table.render(container);
+// later, e.g. after an async fetch:
+table.setData(freshRows);</code></pre>
+            <div class="border rounded p-3">
+              <div class="mb-3">
+                <button type="button" class="btn btn-sm btn-primary" id="reload-data">Load a different set of rows</button>
+              </div>
+              <table class="table table-striped align-middle mb-0" id="table-setdata"></table>
+            </div>
+          </section>
+
+          <hr class="my-5">
+
+          <section id="combined">
+            <h2 class="h5">11. Everything together</h2>
+            <p class="text-body-secondary">Sortable + resizable + column search + pagination + column selector, all on one table.</p>
+            <div class="border rounded p-3">
+              <div class="mb-3" id="column-selector-combined"></div>
+              <table class="table table-striped align-middle mb-0" id="table-combined"></table>
+              <div id="pagination-combined" class="mt-3"></div>
+            </div>
+          </section>
+
+          <p class="text-body-secondary border-top py-4 mt-5">
+            See <a href="https://github.com/marmooo/table/blob/main/README.md">README.md</a> for the full API reference.
+          </p>
+
+        </div>
+      </div>
+    </main>
+    <footer class="pt-4 alert text-center">
+      <div>
+        <a class="px-1" href="/">Home</a>
+        <a class="px-1" href="/terms/">Terms</a>
+        <a class="px-1" href="https://github.com/marmooo/table">Contact</a>
+      </div>
+      <div class="text-muted">&copy; <a href="https://github.com/marmooo">marmooo</a></div>
+    </footer>
+    <script type="module" src="/table/index.js"></script>
+    <div class="drop-inline-css
+      table-responsive
+      form-control form-control-sm
+      pagination page-item page-link
+      btn btn-sm btn-outline-danger
+      d-none">
+      <table class="table table-striped"></table>
+    </div>
+  </body>
+</html>
