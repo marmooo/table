@@ -1,4 +1,4 @@
-# table
+# @marmooo/table
 
 A dependency-free HTML `<table>` library. Sorting, per-column filtering,
 pagination, column visibility, column resizing, and cell editing are all opt-in
