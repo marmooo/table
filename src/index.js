@@ -1,4 +1,4 @@
-import { Table, Sortable, Resizable, Editable } from "./table.js";
+import { Editable, Resizable, Sortable, Table } from "./table.js";
 import hljs from "https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.11.1/build/es/highlight.min.js";
 import javascript from "https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.11.1/build/es/languages/javascript.min.js";
 
@@ -7,7 +7,7 @@ const highlightjsURL =
 const lightThemeURL = highlightjsURL + "default.min.css";
 const darkThemeURL = highlightjsURL + "dark.min.css";
 
-applyHighlightjsTheme(localStorage.getItem("darkMode") ?? "light");
+applyHighlightjsTheme(document.documentElement.getAttribute("data-bs-theme"));
 
 function toggleDarkMode() {
   const html = document.documentElement;
@@ -34,17 +34,71 @@ function formatDuration(totalSeconds) {
 
 function tracks() {
   return [
-    { id: 1, title: "Sunrise Drift", artist: "Nova Bloom", album: "Halcyon", duration: 214, plays: 128400, releasedAt: "2019-03-12" },
-    { id: 2, title: "Glass Corridor", artist: "Kite Season", album: "Static Bloom", duration: 187, plays: 54210, releasedAt: "2021-07-04" },
-    { id: 3, title: "Low Tide", artist: "Nova Bloom", album: "Halcyon", duration: 251, plays: 302110, releasedAt: "2019-03-12" },
-    { id: 4, title: "Paper Moths", artist: "Ferra Vale", album: "Paper Moths EP", duration: 163, plays: 18900, releasedAt: "2023-01-20" },
-    { id: 5, title: "Static Bloom", artist: "Kite Season", album: "Static Bloom", duration: 229, plays: 76210, releasedAt: "2021-07-04" },
-    { id: 6, title: "Copper Skyline", artist: "Ferra Vale", album: "Paper Moths EP", duration: 198, plays: 44100, releasedAt: "2023-01-20" },
+    {
+      id: 1,
+      title: "Sunrise Drift",
+      artist: "Nova Bloom",
+      album: "Halcyon",
+      duration: 214,
+      plays: 128400,
+      releasedAt: "2019-03-12",
+    },
+    {
+      id: 2,
+      title: "Glass Corridor",
+      artist: "Kite Season",
+      album: "Static Bloom",
+      duration: 187,
+      plays: 54210,
+      releasedAt: "2021-07-04",
+    },
+    {
+      id: 3,
+      title: "Low Tide",
+      artist: "Nova Bloom",
+      album: "Halcyon",
+      duration: 251,
+      plays: 302110,
+      releasedAt: "2019-03-12",
+    },
+    {
+      id: 4,
+      title: "Paper Moths",
+      artist: "Ferra Vale",
+      album: "Paper Moths EP",
+      duration: 163,
+      plays: 18900,
+      releasedAt: "2023-01-20",
+    },
+    {
+      id: 5,
+      title: "Static Bloom",
+      artist: "Kite Season",
+      album: "Static Bloom",
+      duration: 229,
+      plays: 76210,
+      releasedAt: "2021-07-04",
+    },
+    {
+      id: 6,
+      title: "Copper Skyline",
+      artist: "Ferra Vale",
+      album: "Paper Moths EP",
+      duration: 198,
+      plays: 44100,
+      releasedAt: "2023-01-20",
+    },
   ];
 }
 
 function manyTracks(count = 23) {
-  const artists = ["Nova Bloom", "Kite Season", "Ferra Vale", "Salt Orchard", "Glass Antlers"];
+  const artists = [
+    "Nova Bloom",
+    "Kite Season",
+    "Ferra Vale",
+    "Salt Orchard",
+    "Glass Antlers",
+  ];
   return Array.from({ length: count }, (_, i) => ({
     id: i + 1,
     title: `Track ${i + 1}`,
@@ -63,7 +117,9 @@ function basicColumns() {
     {
       id: "duration",
       name: "Duration",
-      render: (row, td) => { td.textContent = formatDuration(row.duration); },
+      render: (row, td) => {
+        td.textContent = formatDuration(row.duration);
+      },
     },
   ];
 }
@@ -89,7 +145,8 @@ new Table({
     {
       id: "releasedAt",
       name: "Released",
-      compare: (a, b) => new Date(a.releasedAt).getTime() - new Date(b.releasedAt).getTime(),
+      compare: (a, b) =>
+        new Date(a.releasedAt).getTime() - new Date(b.releasedAt).getTime(),
     },
     {
       id: "actions",
@@ -135,7 +192,9 @@ new Table({
   const table = new Table({
     data: tracks(),
     columns: [...basicColumns(), { id: "plays", name: "Plays" }],
-    components: { columnSelector: { container: document.querySelector("#column-selector") } },
+    components: {
+      columnSelector: { container: document.querySelector("#column-selector") },
+    },
   });
   const resizable = new Resizable(table);
   table.options.plugins = [resizable];
@@ -201,7 +260,9 @@ new Table({
         container: document.querySelector("#pagination-combined"),
         maxPageButtons: 5,
       },
-      columnSelector: { container: document.querySelector("#column-selector-combined") },
+      columnSelector: {
+        container: document.querySelector("#column-selector-combined"),
+      },
     },
   });
   const resizable = new Resizable(table);
