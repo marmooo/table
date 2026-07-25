@@ -174,7 +174,24 @@ new Table({
   components: { columnSearch: { placeholder: "Search…" } },
 }).render(document.querySelector("#table-search"));
 
-// 5. Pagination
+// 5. Column search with datalist
+new Table({
+  data: tracks(),
+  columns: [
+    { id: "title", name: "Title" },
+    { id: "artist", name: "Artist", datalist: true },
+    {
+      id: "duration",
+      name: "Duration",
+      render: (row, td) => {
+        td.textContent = formatDuration(row.duration);
+      },
+    },
+  ],
+  components: { columnSearch: { placeholder: "Search…" } },
+}).render(document.querySelector("#table-search-datalist"));
+
+// 6. Pagination
 new Table({
   data: manyTracks(),
   columns: basicColumns(),
@@ -187,7 +204,7 @@ new Table({
   },
 }).render(document.querySelector("#table-pagination"));
 
-// 6. Column selector
+// 7. Column selector
 (() => {
   const table = new Table({
     data: tracks(),
@@ -201,21 +218,21 @@ new Table({
   table.render(document.querySelector("#table-columns"));
 })();
 
-// 7. Resizable
+// 8. Resizable
 (() => {
   const table = new Table({ data: tracks(), columns: basicColumns() });
   table.options.plugins = [new Resizable(table)];
   table.render(document.querySelector("#table-resizable"));
 })();
 
-// 8. Editable
+// 9. Editable
 (() => {
   const table = new Table({ data: tracks(), columns: basicColumns() });
   table.options.plugins = [new Editable(table)];
   table.render(document.querySelector("#table-editable"));
 })();
 
-// 9. Custom sort indicator
+// 10. Custom sort indicator
 (() => {
   const table = new Table({
     data: tracks(),
@@ -235,7 +252,7 @@ new Table({
   table.render(document.querySelector("#table-custom-indicator"));
 })();
 
-// 10. setData()
+// 11. setData()
 (() => {
   const table = new Table({ data: tracks(), columns: basicColumns() });
   table.render(document.querySelector("#table-setdata"));
@@ -247,7 +264,7 @@ new Table({
   });
 })();
 
-// 11. Everything together
+// 12. Everything together
 (() => {
   const columns = [...basicColumns(), { id: "plays", name: "Plays" }];
   const table = new Table({

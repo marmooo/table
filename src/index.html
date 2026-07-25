@@ -112,13 +112,14 @@
               <li class="nav-item"><a class="nav-link" href="#sortable">2. Sortable</a></li>
               <li class="nav-item"><a class="nav-link" href="#actions">3. Non-sortable column + custom compare</a></li>
               <li class="nav-item"><a class="nav-link" href="#search">4. Column search</a></li>
-              <li class="nav-item"><a class="nav-link" href="#pagination">5. Pagination</a></li>
-              <li class="nav-item"><a class="nav-link" href="#columns">6. Column selector</a></li>
-              <li class="nav-item"><a class="nav-link" href="#resizable">7. Resizable columns</a></li>
-              <li class="nav-item"><a class="nav-link" href="#editable">8. Editable cells</a></li>
-              <li class="nav-item"><a class="nav-link" href="#indicator">9. Custom sort indicator</a></li>
-              <li class="nav-item"><a class="nav-link" href="#setdata">10. setData()</a></li>
-              <li class="nav-item"><a class="nav-link" href="#combined">11. Everything together</a></li>
+              <li class="nav-item"><a class="nav-link" href="#search-datalist">5. Column search with datalist</a></li>
+              <li class="nav-item"><a class="nav-link" href="#pagination">6. Pagination</a></li>
+              <li class="nav-item"><a class="nav-link" href="#columns">7. Column selector</a></li>
+              <li class="nav-item"><a class="nav-link" href="#resizable">8. Resizable columns</a></li>
+              <li class="nav-item"><a class="nav-link" href="#editable">9. Editable cells</a></li>
+              <li class="nav-item"><a class="nav-link" href="#indicator">10. Custom sort indicator</a></li>
+              <li class="nav-item"><a class="nav-link" href="#setdata">11. setData()</a></li>
+              <li class="nav-item"><a class="nav-link" href="#combined">12. Everything together</a></li>
             </ul>
           </div>
         </nav>
@@ -209,8 +210,27 @@ new Table({
 
           <hr class="my-5">
 
+          <section id="search-datalist">
+            <h2 class="h5">5. Column search with datalist</h2>
+            <p class="text-body-secondary">Set <code>datalist: true</code> (globally on <code>columnSearch</code>, or per column, which takes priority) to attach a native <code>&lt;datalist&gt;</code> of that column's unique values to its search input as autocomplete suggestions. Try clicking the Artist search box below.</p>
+            <pre class="bg-body-tertiary rounded p-3"><code>new Table({
+  data: tracks,
+  columns: [
+    { id: "title", name: "Title" },
+    { id: "artist", name: "Artist", datalist: true },
+    { id: "duration", name: "Duration" },
+  ],
+  components: { columnSearch: { placeholder: "Search…" } },
+}).render(container);</code></pre>
+            <div class="border rounded p-3">
+              <table class="table table-striped align-middle mb-0" id="table-search-datalist"></table>
+            </div>
+          </section>
+
+          <hr class="my-5">
+
           <section id="pagination">
-            <h2 class="h5">5. Pagination</h2>
+            <h2 class="h5">6. Pagination</h2>
             <p class="text-body-secondary">Set a <code>pageSize</code> and a container for the page controls. <code>table.pagination.goToPage(n)</code> and <code>getTotalPages()</code> are available for programmatic control.</p>
             <pre class="bg-body-tertiary rounded p-3"><code>new Table({
   data: manyTracks,
@@ -228,7 +248,7 @@ new Table({
           <hr class="my-5">
 
           <section id="columns">
-            <h2 class="h5">6. Column selector</h2>
+            <h2 class="h5">7. Column selector</h2>
             <p class="text-body-secondary">Lets people show/hide columns from a dropdown checklist. Works together with <code>Resizable</code>, which auto-resets widths when visibility changes.</p>
             <pre class="bg-body-tertiary rounded p-3"><code>new Table({
   data: tracks,
@@ -244,7 +264,7 @@ new Table({
           <hr class="my-5">
 
           <section id="resizable">
-            <h2 class="h5">7. Resizable columns</h2>
+            <h2 class="h5">8. Resizable columns</h2>
             <p class="text-body-secondary">Drag a column border to resize it.</p>
             <pre class="bg-body-tertiary rounded p-3"><code>const table = new Table({ data: tracks, columns });
 table.options.plugins = [new Resizable(table)];
@@ -257,7 +277,7 @@ table.render(container);</code></pre>
           <hr class="my-5">
 
           <section id="editable">
-            <h2 class="h5">8. Editable cells</h2>
+            <h2 class="h5">9. Editable cells</h2>
             <p class="text-body-secondary">Click any body cell to edit it in place. <code>Editable</code> doesn't write the value back into <code>data</code> — read it from the DOM (e.g. on blur) if you need to persist it.</p>
             <pre class="bg-body-tertiary rounded p-3"><code>const table = new Table({ data: tracks, columns });
 table.options.plugins = [new Editable(table)];
@@ -270,7 +290,7 @@ table.render(container);</code></pre>
           <hr class="my-5">
 
           <section id="indicator">
-            <h2 class="h5">9. Custom sort indicator</h2>
+            <h2 class="h5">10. Custom sort indicator</h2>
             <p class="text-body-secondary"><code>components.sortIndicator.render</code> replaces the default arrow. It's called with the current direction and its return value replaces the old indicator — return <code>null</code> to hide it for a given state.</p>
             <pre class="bg-body-tertiary rounded p-3"><code>components: {
   sortIndicator: {
@@ -290,7 +310,7 @@ table.render(container);</code></pre>
           <hr class="my-5">
 
           <section id="setdata">
-            <h2 class="h5">10. setData()</h2>
+            <h2 class="h5">11. setData()</h2>
             <p class="text-body-secondary">Swap the underlying rows at any time — existing filters/sort are re-applied and pagination resets to page 1.</p>
             <pre class="bg-body-tertiary rounded p-3"><code>const table = new Table({ data: tracks, columns });
 table.render(container);
@@ -307,7 +327,7 @@ table.setData(freshRows);</code></pre>
           <hr class="my-5">
 
           <section id="combined">
-            <h2 class="h5">11. Everything together</h2>
+            <h2 class="h5">12. Everything together</h2>
             <p class="text-body-secondary">Sortable + resizable + column search + pagination + column selector, all on one table.</p>
             <div class="border rounded p-3">
               <div class="text-end" id="column-selector-combined"></div>

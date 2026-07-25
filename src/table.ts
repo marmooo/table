@@ -5,6 +5,7 @@ export interface Column {
   name: string;
   visible?: boolean;
   searchPlaceholder?: string | false;
+  datalist?: boolean;
   sortable?: boolean;
   compare?: (a: RowData, b: RowData) => number;
   render?: (row: RowData, td: HTMLTableCellElement) => void;
@@ -55,6 +56,7 @@ export interface PaginationOptions {
 export interface ColumnSearchOptions {
   placeholder?: string;
   debounce?: number;
+  datalist?: boolean;
 }
 
 export interface ColumnSelectorRenderParams {
@@ -92,6 +94,9 @@ export class Table {
   container!: HTMLElement;
 
   readonly options: TableOptions;
+
+  private static instanceCount = 0;
+  private readonly instanceId = `table-${Table.instanceCount++}`;
 
   private readonly emptyString = "";
   private filters: Record<ColumnId, string> = {};
@@ -295,6 +300,11 @@ export class Table {
         }, debounceMs);
       });
       th.appendChild(input);
+      if (column.datalist ?? searchOptions.datalist ?? false) {
+        const datalist = this.createDatalist(column.id);
+        input.setAttribute("list", datalist.id);
+        th.appendChild(datalist);
+      }
       tr.appendChild(th);
     }
     return tr;
@@ -374,11 +384,63 @@ export class Table {
     this.updateTbody();
   }
 
+  private getColumnDatalistValues(columnId: ColumnId): string[] {
+    const data = this.options.data;
+    const seen = new Set<string>();
+    const values: string[] = [];
+    for (let i = 0; i < data.length; i++) {
+      const value = data[i][columnId];
+      if (value === null || value === undefined || value === "") continue;
+      const str = String(value);
+      if (seen.has(str)) continue;
+      seen.add(str);
+      values.push(str);
+    }
+    values.sort((a, b) => a.localeCompare(b));
+    return values;
+  }
+
+  private appendDatalistOptions(
+    datalist: HTMLDataListElement,
+    columnId: ColumnId,
+  ): void {
+    const values = this.getColumnDatalistValues(columnId);
+    for (let i = 0; i < values.length; i++) {
+      const option = document.createElement("option");
+      option.value = values[i];
+      datalist.appendChild(option);
+    }
+  }
+
+  private createDatalist(columnId: ColumnId): HTMLDataListElement {
+    const datalist = document.createElement("datalist");
+    datalist.id = `${this.instanceId}-datalist-${columnId}`;
+    this.appendDatalistOptions(datalist, columnId);
+    return datalist;
+  }
+
+  private updateSearchDatalists(): void {
+    const searchOptions = this.options.components?.columnSearch;
+    if (!searchOptions) return;
+    const visibleColumns = this.getVisibleColumns();
+    for (let i = 0; i < visibleColumns.length; i++) {
+      const column = visibleColumns[i];
+      if (!(column.datalist ?? searchOptions.datalist ?? false)) continue;
+      const datalist = document.getElementById(
+        `${this.instanceId}-datalist-${column.id}`,
+      ) as HTMLDataListElement | null;
+      if (!datalist) continue;
+      datalist.replaceChildren();
+      this.appendDatalistOptions(datalist, column.id);
+    }
+  }
+
   setData(data: RowData[]): void {
     this.options.data = data;
     this.filteredData = this.computeFilteredData();
     this.invalidateDisplayCache();
     this.updateSearchInputValidity();
+    this.updateSearchDatalists();
     if (this.pagination) {
       this.pagination.currentPage = 1;
       this.pagination.render();

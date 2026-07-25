@@ -137,6 +137,7 @@ components: {
   columnSearch: {
     placeholder: "Search…",
     debounce: 200, // delay (ms) between the input event and applying the filter; default 200
+    datalist: false, // attach a <datalist> of that column's unique values to every search input; default false
   },
 }
 ```
@@ -144,6 +145,11 @@ components: {
 - Conditions across columns are ANDed; matching within a column is a
   case-insensitive substring match.
 - Disable it per column with `column.searchPlaceholder: false`.
+- Set `datalist: true` (globally via `columnSearch.datalist`, or per column via
+  `column.datalist`, which takes priority) to attach a `<datalist>` of that
+  column's unique, non-empty values to its search input as autocomplete
+  suggestions. Values are drawn from `options.data`, not the current filtered
+  view, and are refreshed automatically on `setData()`.
 - **When a filter yields zero results**: instead of an empty-state row or
   message, the search input(s) responsible (the ones with a non-empty value) get
   an `is-invalid` class and `aria-invalid="true"`. No text is shown, so there's
