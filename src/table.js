@@ -47,17 +47,24 @@ var Table = class _Table {
     if (!headerRow) return;
     const ths = headerRow.cells;
     const widths = [];
+    let total = 0;
     for (let i = 0; i < ths.length; i++) {
-      widths.push(ths[i].getBoundingClientRect().width);
+      const w = ths[i].getBoundingClientRect().width;
+      widths.push(w);
+      total += w;
     }
     this.container.style.tableLayout = "fixed";
+    this.container.style.width = `${total}px`;
     for (let i = 0; i < ths.length; i++) {
       const th = ths[i];
       const w = widths[i];
       th.style.boxSizing = "border-box";
       th.style.width = `${w}px`;
-      th.style.minWidth = `${w}px`;
-      th.style.maxWidth = `${w}px`;
+      th.style.minWidth = "0";
+    }
+    const allHeaderCells = this.container.querySelectorAll("thead th");
+    for (let i = 0; i < allHeaderCells.length; i++) {
+      allHeaderCells[i].style.minWidth = "0";
     }
   }
   compareRows(a, b, column, columnId, order) {
@@ -151,10 +158,13 @@ var Table = class _Table {
           if (text) cell.title = text;
         }
       }
+      cell.style.minWidth = "0";
       if (tagName === "td") {
         cell.style.whiteSpace = "nowrap";
         cell.style.overflow = "hidden";
         cell.style.textOverflow = "ellipsis";
+      } else if (tagName === "th") {
+        cell.style.overflow = "hidden";
       }
       if (isHeaderRow && this.isColumnObjectSortable(column)) {
         cell.tabIndex = 0;
@@ -185,6 +195,8 @@ var Table = class _Table {
       input.placeholder = column.searchPlaceholder ?? searchOptions.placeholder ?? "";
       input.dataset["columnId"] = column.id;
       input.value = this.filters[column.id] ?? "";
+      input.style.minWidth = "0";
+      input.style.width = "100%";
       input.addEventListener("input", (event) => {
         this.filters[column.id] = event.target.value;
         globalThis.clearTimeout(this.searchDebounceTimers[column.id]);
@@ -441,6 +453,12 @@ var Table = class _Table {
     this.container.appendChild(this.renderTbody());
     if (this.columnSelector) this.renderColumnSelector();
     if (this.pagination) this.pagination.render();
+    for (let i = 0; i < this.plugins.length; i++) {
+      if (this.plugins[i] instanceof Resizable) {
+        this.preserveColumnWidths();
+        break;
+      }
+    }
     return this.container;
   }
   updateTbody() {
@@ -547,6 +565,7 @@ var Resizable = class extends Cell {
   }
   removeEventListeners() {
     this.table.container.style.tableLayout = "inherit";
+    this.table.container.style.width = "";
     this.table.container.removeEventListener("pointermove", this.onPointerMove);
     this.table.container.removeEventListener("pointerdown", this.onPointerDown);
     this.table.container.removeEventListener("pointerup", this.onPointerUp);
@@ -554,6 +573,7 @@ var Resizable = class extends Cell {
   }
   reset() {
     this.table.container.style.tableLayout = "auto";
+    this.table.container.style.width = "";
     const headers = this.table.container.querySelectorAll("thead th");
     for (let i = 0; i < headers.length; i++) {
       const th = headers[i];
@@ -579,12 +599,17 @@ var Resizable = class extends Cell {
     cell.setPointerCapture(event.pointerId);
     const columns = row.getElementsByTagName("th");
     const index = this.findIndex(columns, cell);
+    let total = 0;
     for (let i = 0; i < columns.length; i++) {
       const column = columns[i];
       const w = column.getBoundingClientRect().width;
+      total += w;
       column.style.boxSizing = "border-box";
       column.style.width = `${w}px`;
+      column.style.minWidth = "0";
     }
+    this.table.container.style.tableLayout = "fixed";
+    this.table.container.style.width = `${total}px`;
     this.resizingCells = status === "left" ? {
       left: columns[index - 1],
       right: cell

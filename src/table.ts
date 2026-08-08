@@ -152,19 +152,34 @@ export class Table {
     if (!headerRow) return;
     // Measure with subpixel precision, then apply with border-box so the visual
     // width is preserved as closely as possible regardless of box-sizing.
+    // Lock the table's own width in px so a CSS width:100% cannot redistribute
+    // space and fight the explicit column widths during resize.
+    // min-width:0 lets columns shrink below content intrinsic size under fixed layout.
     const ths = headerRow.cells;
     const widths: number[] = [];
+    let total = 0;
     for (let i = 0; i < ths.length; i++) {
-      widths.push(ths[i].getBoundingClientRect().width);
+      const w = ths[i].getBoundingClientRect().width;
+      widths.push(w);
+      total += w;
     }
     this.container.style.tableLayout = "fixed";
+    this.container.style.width = `${total}px`;
     for (let i = 0; i < ths.length; i++) {
       const th = ths[i] as HTMLTableCellElement;
       const w = widths[i];
       th.style.boxSizing = "border-box";
       th.style.width = `${w}px`;
-      th.style.minWidth = `${w}px`;
-      th.style.maxWidth = `${w}px`;
+      th.style.minWidth = "0";
+    }
+    // Search-row / other thead cells must also allow shrink (inputs have min-width).
+    const allHeaderCells = this.container.querySelectorAll<
+      HTMLTableCellElement
+    >(
+      "thead th",
+    );
+    for (let i = 0; i < allHeaderCells.length; i++) {
+      allHeaderCells[i].style.minWidth = "0";
     }
   }
 
@@ -290,11 +305,16 @@ export class Table {
           if (text) cell.title = text;
         }
       }
-      // Prevent long cell content from expanding columns (works well with table-layout: fixed)
+      // Prevent long cell content from expanding columns (works well with table-layout: fixed).
+      // min-width:0 is required so columns can shrink below intrinsic content width.
+      cell.style.minWidth = "0";
       if (tagName === "td") {
         cell.style.whiteSpace = "nowrap";
         cell.style.overflow = "hidden";
         cell.style.textOverflow = "ellipsis";
+      } else if (tagName === "th") {
+        // Header text should also clip under fixed layout so it cannot block shrink.
+        cell.style.overflow = "hidden";
       }
       if (isHeaderRow && this.isColumnObjectSortable(column)) {
         cell.tabIndex = 0;
@@ -327,6 +347,9 @@ export class Table {
         searchOptions.placeholder ?? "";
       input.dataset["columnId"] = column.id;
       input.value = this.filters[column.id] ?? "";
+      // Allow the column to shrink below the input's intrinsic min-width.
+      input.style.minWidth = "0";
+      input.style.width = "100%";
       input.addEventListener("input", (event) => {
         this.filters[column.id] = (event.target as HTMLInputElement).value;
         globalThis.clearTimeout(this.searchDebounceTimers[column.id]);
@@ -618,6 +641,15 @@ export class Table {
     this.container.appendChild(this.renderTbody());
     if (this.columnSelector) this.renderColumnSelector();
     if (this.pagination) this.pagination.render();
+    // With Resizable active, lock measured column widths under fixed layout
+    // immediately so the first resize is not blocked by content min-width or
+    // a CSS width:100% redistribution.
+    for (let i = 0; i < this.plugins.length; i++) {
+      if (this.plugins[i] instanceof Resizable) {
+        this.preserveColumnWidths();
+        break;
+      }
+    }
     return this.container;
   }
 
@@ -779,6 +811,7 @@ export class Resizable extends Cell implements Plugin {
 
   removeEventListeners(): void {
     this.table.container.style.tableLayout = "inherit";
+    this.table.container.style.width = "";
     this.table.container.removeEventListener(
       "pointermove",
       this.onPointerMove as EventListener,
@@ -793,6 +826,7 @@ export class Resizable extends Cell implements Plugin {
 
   reset(): void {
     this.table.container.style.tableLayout = "auto";
+    this.table.container.style.width = "";
     const headers = this.table.container.querySelectorAll<HTMLTableCellElement>(
       "thead th",
     );
@@ -825,12 +859,19 @@ export class Resizable extends Cell implements Plugin {
     cell.setPointerCapture(event.pointerId);
     const columns = row.getElementsByTagName("th");
     const index = this.findIndex(columns, cell);
+    // Snapshot current widths, then lock table to fixed layout + explicit px
+    // width so CSS width:100% / content min-width cannot resist shrinking.
+    let total = 0;
     for (let i = 0; i < columns.length; i++) {
       const column = columns[i];
       const w = column.getBoundingClientRect().width;
+      total += w;
       column.style.boxSizing = "border-box";
       column.style.width = `${w}px`;
+      column.style.minWidth = "0";
     }
+    this.table.container.style.tableLayout = "fixed";
+    this.table.container.style.width = `${total}px`;
     this.resizingCells = status === "left"
       ? { left: columns[index - 1] as HTMLElement | undefined, right: cell }
       : { left: cell, right: columns[index + 1] as HTMLElement | undefined };
