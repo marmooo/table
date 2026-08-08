@@ -5,6 +5,7 @@ export interface Column {
   name: string;
   visible?: boolean;
   searchPlaceholder?: string | false;
+  datalist?: boolean;
   sortable?: boolean;
   compare?: (a: RowData, b: RowData) => number;
   render?: (row: RowData, td: HTMLTableCellElement) => void;
@@ -55,6 +56,7 @@ export interface PaginationOptions {
 export interface ColumnSearchOptions {
   placeholder?: string;
   debounce?: number;
+  datalist?: boolean;
 }
 
 export interface ColumnSelectorRenderParams {
@@ -92,6 +94,9 @@ export class Table {
   container!: HTMLElement;
 
   readonly options: TableOptions;
+
+  private static instanceCount = 0;
+  private readonly instanceId = `table-${Table.instanceCount++}`;
 
   private readonly emptyString = "";
   private filters: Record<ColumnId, string> = {};
@@ -137,6 +142,30 @@ export class Table {
 
   private invalidateDisplayCache(): void {
     this.displayDataCache = null;
+  }
+
+  private preserveColumnWidths(): void {
+    if (!this.container) return;
+    const headerRow = this.container.querySelector<HTMLTableRowElement>(
+      "thead tr",
+    );
+    if (!headerRow) return;
+    // Measure with subpixel precision, then apply with border-box so the visual
+    // width is preserved as closely as possible regardless of box-sizing.
+    const ths = headerRow.cells;
+    const widths: number[] = [];
+    for (let i = 0; i < ths.length; i++) {
+      widths.push(ths[i].getBoundingClientRect().width);
+    }
+    this.container.style.tableLayout = "fixed";
+    for (let i = 0; i < ths.length; i++) {
+      const th = ths[i] as HTMLTableCellElement;
+      const w = widths[i];
+      th.style.boxSizing = "border-box";
+      th.style.width = `${w}px`;
+      th.style.minWidth = `${w}px`;
+      th.style.maxWidth = `${w}px`;
+    }
   }
 
   private compareRows(
@@ -255,6 +284,17 @@ export class Table {
       } else {
         const value = datum[column.id] ?? this.emptyString;
         cell.appendChild(format(value, column.id));
+        // Enable ellipsis for long text so content length cannot force column growth
+        if (tagName === "td") {
+          const text = String(value);
+          if (text) cell.title = text;
+        }
+      }
+      // Prevent long cell content from expanding columns (works well with table-layout: fixed)
+      if (tagName === "td") {
+        cell.style.whiteSpace = "nowrap";
+        cell.style.overflow = "hidden";
+        cell.style.textOverflow = "ellipsis";
       }
       if (isHeaderRow && this.isColumnObjectSortable(column)) {
         cell.tabIndex = 0;
@@ -295,6 +335,11 @@ export class Table {
         }, debounceMs);
       });
       th.appendChild(input);
+      if (column.datalist ?? searchOptions.datalist ?? false) {
+        const datalist = this.createDatalist(column.id);
+        input.setAttribute("list", datalist.id);
+        th.appendChild(datalist);
+      }
       tr.appendChild(th);
     }
     return tr;
@@ -367,6 +412,7 @@ export class Table {
     this.filteredData = this.computeFilteredData();
     this.invalidateDisplayCache();
     this.updateSearchInputValidity();
+    this.preserveColumnWidths();
     if (this.pagination) {
       this.pagination.currentPage = 1;
       this.pagination.render();
@@ -374,11 +420,64 @@ export class Table {
     this.updateTbody();
   }
 
+  private getColumnDatalistValues(columnId: ColumnId): string[] {
+    const data = this.options.data;
+    const seen = new Set<string>();
+    const values: string[] = [];
+    for (let i = 0; i < data.length; i++) {
+      const value = data[i][columnId];
+      if (value === null || value === undefined || value === "") continue;
+      const str = String(value);
+      if (seen.has(str)) continue;
+      seen.add(str);
+      values.push(str);
+    }
+    values.sort((a, b) => a.localeCompare(b));
+    return values;
+  }
+
+  private appendDatalistOptions(
+    datalist: HTMLDataListElement,
+    columnId: ColumnId,
+  ): void {
+    const values = this.getColumnDatalistValues(columnId);
+    for (let i = 0; i < values.length; i++) {
+      const option = document.createElement("option");
+      option.value = values[i];
+      datalist.appendChild(option);
+    }
+  }
+
+  private createDatalist(columnId: ColumnId): HTMLDataListElement {
+    const datalist = document.createElement("datalist");
+    datalist.id = `${this.instanceId}-datalist-${columnId}`;
+    this.appendDatalistOptions(datalist, columnId);
+    return datalist;
+  }
+
+  private updateSearchDatalists(): void {
+    const searchOptions = this.options.components?.columnSearch;
+    if (!searchOptions) return;
+    const visibleColumns = this.getVisibleColumns();
+    for (let i = 0; i < visibleColumns.length; i++) {
+      const column = visibleColumns[i];
+      if (!(column.datalist ?? searchOptions.datalist ?? false)) continue;
+      const datalist = document.getElementById(
+        `${this.instanceId}-datalist-${column.id}`,
+      ) as HTMLDataListElement | null;
+      if (!datalist) continue;
+      datalist.replaceChildren();
+      this.appendDatalistOptions(datalist, column.id);
+    }
+  }
+
   setData(data: RowData[]): void {
     this.options.data = data;
     this.filteredData = this.computeFilteredData();
     this.invalidateDisplayCache();
     this.updateSearchInputValidity();
+    this.updateSearchDatalists();
+    this.preserveColumnWidths();
     if (this.pagination) {
       this.pagination.currentPage = 1;
       this.pagination.render();
@@ -429,6 +528,7 @@ export class Table {
     this.sortState = { columnId, order: nextOrder };
     this.invalidateDisplayCache();
     this.updateSortIndicators();
+    this.preserveColumnWidths();
     if (this.pagination) {
       this.pagination.currentPage = 1;
       this.pagination.render();
@@ -692,11 +792,16 @@ export class Resizable extends Cell implements Plugin {
   }
 
   reset(): void {
+    this.table.container.style.tableLayout = "auto";
     const headers = this.table.container.querySelectorAll<HTMLTableCellElement>(
       "thead th",
     );
     for (let i = 0; i < headers.length; i++) {
-      headers[i].style.width = "inherit";
+      const th = headers[i];
+      th.style.boxSizing = "";
+      th.style.width = "";
+      th.style.minWidth = "";
+      th.style.maxWidth = "";
     }
   }
 
@@ -722,7 +827,9 @@ export class Resizable extends Cell implements Plugin {
     const index = this.findIndex(columns, cell);
     for (let i = 0; i < columns.length; i++) {
       const column = columns[i];
-      column.style.width = `${column.offsetWidth}px`;
+      const w = column.getBoundingClientRect().width;
+      column.style.boxSizing = "border-box";
+      column.style.width = `${w}px`;
     }
     this.resizingCells = status === "left"
       ? { left: columns[index - 1] as HTMLElement | undefined, right: cell }
@@ -752,8 +859,10 @@ export class Resizable extends Cell implements Plugin {
 export class Sortable extends Cell implements Plugin {
   private sorting = false;
   private resizable?: Resizable;
+  private pointerDownCell: HTMLElement | null = null;
 
   private readonly table: Table;
+  private readonly onPointerDown: (e: PointerEvent) => void;
   private readonly onPointerUp: (e: PointerEvent) => void;
   private readonly onKeyDown: (e: KeyboardEvent) => void;
 
@@ -761,11 +870,16 @@ export class Sortable extends Cell implements Plugin {
     super();
     this.table = table;
     this.resizable = options?.resizable;
+    this.onPointerDown = this.handlePointerDown.bind(this);
     this.onPointerUp = this.sortRows.bind(this);
     this.onKeyDown = this.handleKeyDown.bind(this);
   }
 
   addEventListeners(): void {
+    this.table.container.addEventListener(
+      "pointerdown",
+      this.onPointerDown as EventListener,
+    );
     this.table.container.addEventListener(
       "pointerup",
       this.onPointerUp as EventListener,
@@ -777,6 +891,10 @@ export class Sortable extends Cell implements Plugin {
   }
 
   removeEventListeners(): void {
+    this.table.container.removeEventListener(
+      "pointerdown",
+      this.onPointerDown as EventListener,
+    );
     this.table.container.removeEventListener(
       "pointerup",
       this.onPointerUp as EventListener,
@@ -799,8 +917,7 @@ export class Sortable extends Cell implements Plugin {
     return column.id;
   }
 
-  private sortRows(event: PointerEvent): void {
-    if (this.sorting) return;
+  private handlePointerDown(event: PointerEvent): void {
     const interactive = (event.target as HTMLElement).closest(
       "input, textarea, select, button, [data-no-sort]",
     );
@@ -811,9 +928,33 @@ export class Sortable extends Cell implements Plugin {
     if (!columnId) return;
     const status = this.getHoverStatus(event, cell);
     if (this.resizable && status !== "in") return;
+    this.pointerDownCell = cell;
+  }
+
+  private sortRows(event: PointerEvent): void {
+    if (this.sorting) return;
+    if (!this.pointerDownCell) return;
+    const interactive = (event.target as HTMLElement).closest(
+      "input, textarea, select, button, [data-no-sort]",
+    );
+    if (interactive) {
+      this.pointerDownCell = null;
+      return;
+    }
+    const cell = this.findCell(event, ["th"]);
+    if (cell !== this.pointerDownCell) {
+      this.pointerDownCell = null;
+      return;
+    }
+    const columnId = this.resolveHeaderColumnId(cell);
+    if (!columnId) {
+      this.pointerDownCell = null;
+      return;
+    }
     this.sorting = true;
     this.table.sortBy(columnId);
     this.sorting = false;
+    this.pointerDownCell = null;
   }
 
   private handleKeyDown(event: KeyboardEvent): void {
