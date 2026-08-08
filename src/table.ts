@@ -814,8 +814,10 @@ export class Resizable extends Cell implements Plugin {
 export class Sortable extends Cell implements Plugin {
   private sorting = false;
   private resizable?: Resizable;
+  private pointerDownCell: HTMLElement | null = null;
 
   private readonly table: Table;
+  private readonly onPointerDown: (e: PointerEvent) => void;
   private readonly onPointerUp: (e: PointerEvent) => void;
   private readonly onKeyDown: (e: KeyboardEvent) => void;
 
@@ -823,11 +825,16 @@ export class Sortable extends Cell implements Plugin {
     super();
     this.table = table;
     this.resizable = options?.resizable;
+    this.onPointerDown = this.handlePointerDown.bind(this);
     this.onPointerUp = this.sortRows.bind(this);
     this.onKeyDown = this.handleKeyDown.bind(this);
   }
 
   addEventListeners(): void {
+    this.table.container.addEventListener(
+      "pointerdown",
+      this.onPointerDown as EventListener,
+    );
     this.table.container.addEventListener(
       "pointerup",
       this.onPointerUp as EventListener,
@@ -839,6 +846,10 @@ export class Sortable extends Cell implements Plugin {
   }
 
   removeEventListeners(): void {
+    this.table.container.removeEventListener(
+      "pointerdown",
+      this.onPointerDown as EventListener,
+    );
     this.table.container.removeEventListener(
       "pointerup",
       this.onPointerUp as EventListener,
@@ -861,8 +872,7 @@ export class Sortable extends Cell implements Plugin {
     return column.id;
   }
 
-  private sortRows(event: PointerEvent): void {
-    if (this.sorting) return;
+  private handlePointerDown(event: PointerEvent): void {
     const interactive = (event.target as HTMLElement).closest(
       "input, textarea, select, button, [data-no-sort]",
     );
@@ -873,9 +883,33 @@ export class Sortable extends Cell implements Plugin {
     if (!columnId) return;
     const status = this.getHoverStatus(event, cell);
     if (this.resizable && status !== "in") return;
+    this.pointerDownCell = cell;
+  }
+
+  private sortRows(event: PointerEvent): void {
+    if (this.sorting) return;
+    if (!this.pointerDownCell) return;
+    const interactive = (event.target as HTMLElement).closest(
+      "input, textarea, select, button, [data-no-sort]",
+    );
+    if (interactive) {
+      this.pointerDownCell = null;
+      return;
+    }
+    const cell = this.findCell(event, ["th"]);
+    if (cell !== this.pointerDownCell) {
+      this.pointerDownCell = null;
+      return;
+    }
+    const columnId = this.resolveHeaderColumnId(cell);
+    if (!columnId) {
+      this.pointerDownCell = null;
+      return;
+    }
     this.sorting = true;
     this.table.sortBy(columnId);
     this.sorting = false;
+    this.pointerDownCell = null;
   }
 
   private handleKeyDown(event: KeyboardEvent): void {

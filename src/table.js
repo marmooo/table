@@ -578,21 +578,26 @@ var Resizable = class extends Cell {
 var Sortable = class extends Cell {
   sorting = false;
   resizable;
+  pointerDownCell = null;
   table;
+  onPointerDown;
   onPointerUp;
   onKeyDown;
   constructor(table, options) {
     super();
     this.table = table;
     this.resizable = options?.resizable;
+    this.onPointerDown = this.handlePointerDown.bind(this);
     this.onPointerUp = this.sortRows.bind(this);
     this.onKeyDown = this.handleKeyDown.bind(this);
   }
   addEventListeners() {
+    this.table.container.addEventListener("pointerdown", this.onPointerDown);
     this.table.container.addEventListener("pointerup", this.onPointerUp);
     this.table.container.addEventListener("keydown", this.onKeyDown);
   }
   removeEventListeners() {
+    this.table.container.removeEventListener("pointerdown", this.onPointerDown);
     this.table.container.removeEventListener("pointerup", this.onPointerUp);
     this.table.container.removeEventListener("keydown", this.onKeyDown);
   }
@@ -607,8 +612,7 @@ var Sortable = class extends Cell {
     if (!column || !this.table.isColumnObjectSortable(column)) return void 0;
     return column.id;
   }
-  sortRows(event) {
-    if (this.sorting) return;
+  handlePointerDown(event) {
     const interactive = event.target.closest("input, textarea, select, button, [data-no-sort]");
     if (interactive) return;
     const cell = this.findCell(event, [
@@ -619,9 +623,32 @@ var Sortable = class extends Cell {
     if (!columnId) return;
     const status = this.getHoverStatus(event, cell);
     if (this.resizable && status !== "in") return;
+    this.pointerDownCell = cell;
+  }
+  sortRows(event) {
+    if (this.sorting) return;
+    if (!this.pointerDownCell) return;
+    const interactive = event.target.closest("input, textarea, select, button, [data-no-sort]");
+    if (interactive) {
+      this.pointerDownCell = null;
+      return;
+    }
+    const cell = this.findCell(event, [
+      "th"
+    ]);
+    if (cell !== this.pointerDownCell) {
+      this.pointerDownCell = null;
+      return;
+    }
+    const columnId = this.resolveHeaderColumnId(cell);
+    if (!columnId) {
+      this.pointerDownCell = null;
+      return;
+    }
     this.sorting = true;
     this.table.sortBy(columnId);
     this.sorting = false;
+    this.pointerDownCell = null;
   }
   handleKeyDown(event) {
     if (event.key !== "Enter" && event.key !== " ") return;
