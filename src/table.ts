@@ -144,6 +144,30 @@ export class Table {
     this.displayDataCache = null;
   }
 
+  private preserveColumnWidths(): void {
+    if (!this.container) return;
+    const headerRow = this.container.querySelector<HTMLTableRowElement>(
+      "thead tr",
+    );
+    if (!headerRow) return;
+    // Measure with subpixel precision, then apply with border-box so the visual
+    // width is preserved as closely as possible regardless of box-sizing.
+    const ths = headerRow.cells;
+    const widths: number[] = [];
+    for (let i = 0; i < ths.length; i++) {
+      widths.push(ths[i].getBoundingClientRect().width);
+    }
+    this.container.style.tableLayout = "fixed";
+    for (let i = 0; i < ths.length; i++) {
+      const th = ths[i] as HTMLTableCellElement;
+      const w = widths[i];
+      th.style.boxSizing = "border-box";
+      th.style.width = `${w}px`;
+      th.style.minWidth = `${w}px`;
+      th.style.maxWidth = `${w}px`;
+    }
+  }
+
   private compareRows(
     a: RowData,
     b: RowData,
@@ -260,6 +284,17 @@ export class Table {
       } else {
         const value = datum[column.id] ?? this.emptyString;
         cell.appendChild(format(value, column.id));
+        // Enable ellipsis for long text so content length cannot force column growth
+        if (tagName === "td") {
+          const text = String(value);
+          if (text) cell.title = text;
+        }
+      }
+      // Prevent long cell content from expanding columns (works well with table-layout: fixed)
+      if (tagName === "td") {
+        cell.style.whiteSpace = "nowrap";
+        cell.style.overflow = "hidden";
+        cell.style.textOverflow = "ellipsis";
       }
       if (isHeaderRow && this.isColumnObjectSortable(column)) {
         cell.tabIndex = 0;
@@ -377,6 +412,7 @@ export class Table {
     this.filteredData = this.computeFilteredData();
     this.invalidateDisplayCache();
     this.updateSearchInputValidity();
+    this.preserveColumnWidths();
     if (this.pagination) {
       this.pagination.currentPage = 1;
       this.pagination.render();
@@ -441,6 +477,7 @@ export class Table {
     this.invalidateDisplayCache();
     this.updateSearchInputValidity();
     this.updateSearchDatalists();
+    this.preserveColumnWidths();
     if (this.pagination) {
       this.pagination.currentPage = 1;
       this.pagination.render();
@@ -491,6 +528,7 @@ export class Table {
     this.sortState = { columnId, order: nextOrder };
     this.invalidateDisplayCache();
     this.updateSortIndicators();
+    this.preserveColumnWidths();
     if (this.pagination) {
       this.pagination.currentPage = 1;
       this.pagination.render();
@@ -754,11 +792,16 @@ export class Resizable extends Cell implements Plugin {
   }
 
   reset(): void {
+    this.table.container.style.tableLayout = "auto";
     const headers = this.table.container.querySelectorAll<HTMLTableCellElement>(
       "thead th",
     );
     for (let i = 0; i < headers.length; i++) {
-      headers[i].style.width = "inherit";
+      const th = headers[i];
+      th.style.boxSizing = "";
+      th.style.width = "";
+      th.style.minWidth = "";
+      th.style.maxWidth = "";
     }
   }
 
@@ -784,7 +827,9 @@ export class Resizable extends Cell implements Plugin {
     const index = this.findIndex(columns, cell);
     for (let i = 0; i < columns.length; i++) {
       const column = columns[i];
-      column.style.width = `${column.offsetWidth}px`;
+      const w = column.getBoundingClientRect().width;
+      column.style.boxSizing = "border-box";
+      column.style.width = `${w}px`;
     }
     this.resizingCells = status === "left"
       ? { left: columns[index - 1] as HTMLElement | undefined, right: cell }

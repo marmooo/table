@@ -1,4 +1,4 @@
-// src/table.ts
+// table.ts
 var Table = class _Table {
   container;
   options;
@@ -40,6 +40,25 @@ var Table = class _Table {
   }
   invalidateDisplayCache() {
     this.displayDataCache = null;
+  }
+  preserveColumnWidths() {
+    if (!this.container) return;
+    const headerRow = this.container.querySelector("thead tr");
+    if (!headerRow) return;
+    const ths = headerRow.cells;
+    const widths = [];
+    for (let i = 0; i < ths.length; i++) {
+      widths.push(ths[i].getBoundingClientRect().width);
+    }
+    this.container.style.tableLayout = "fixed";
+    for (let i = 0; i < ths.length; i++) {
+      const th = ths[i];
+      const w = widths[i];
+      th.style.boxSizing = "border-box";
+      th.style.width = `${w}px`;
+      th.style.minWidth = `${w}px`;
+      th.style.maxWidth = `${w}px`;
+    }
   }
   compareRows(a, b, column, columnId, order) {
     if (column?.compare) {
@@ -127,6 +146,15 @@ var Table = class _Table {
       } else {
         const value = datum[column.id] ?? this.emptyString;
         cell.appendChild(format(value, column.id));
+        if (tagName === "td") {
+          const text = String(value);
+          if (text) cell.title = text;
+        }
+      }
+      if (tagName === "td") {
+        cell.style.whiteSpace = "nowrap";
+        cell.style.overflow = "hidden";
+        cell.style.textOverflow = "ellipsis";
       }
       if (isHeaderRow && this.isColumnObjectSortable(column)) {
         cell.tabIndex = 0;
@@ -238,6 +266,7 @@ var Table = class _Table {
     this.filteredData = this.computeFilteredData();
     this.invalidateDisplayCache();
     this.updateSearchInputValidity();
+    this.preserveColumnWidths();
     if (this.pagination) {
       this.pagination.currentPage = 1;
       this.pagination.render();
@@ -292,6 +321,7 @@ var Table = class _Table {
     this.invalidateDisplayCache();
     this.updateSearchInputValidity();
     this.updateSearchDatalists();
+    this.preserveColumnWidths();
     if (this.pagination) {
       this.pagination.currentPage = 1;
       this.pagination.render();
@@ -335,6 +365,7 @@ var Table = class _Table {
     };
     this.invalidateDisplayCache();
     this.updateSortIndicators();
+    this.preserveColumnWidths();
     if (this.pagination) {
       this.pagination.currentPage = 1;
       this.pagination.render();
@@ -522,9 +553,14 @@ var Resizable = class extends Cell {
     globalThis.removeEventListener("resize", this.onResize);
   }
   reset() {
+    this.table.container.style.tableLayout = "auto";
     const headers = this.table.container.querySelectorAll("thead th");
     for (let i = 0; i < headers.length; i++) {
-      headers[i].style.width = "inherit";
+      const th = headers[i];
+      th.style.boxSizing = "";
+      th.style.width = "";
+      th.style.minWidth = "";
+      th.style.maxWidth = "";
     }
   }
   setPointerStyle(event, cell) {
@@ -545,7 +581,9 @@ var Resizable = class extends Cell {
     const index = this.findIndex(columns, cell);
     for (let i = 0; i < columns.length; i++) {
       const column = columns[i];
-      column.style.width = `${column.offsetWidth}px`;
+      const w = column.getBoundingClientRect().width;
+      column.style.boxSizing = "border-box";
+      column.style.width = `${w}px`;
     }
     this.resizingCells = status === "left" ? {
       left: columns[index - 1],
