@@ -183,6 +183,33 @@ export class Table {
     }
   }
 
+  private getResizablePlugin(): Resizable | undefined {
+    for (let i = 0; i < this.plugins.length; i++) {
+      const plugin = this.plugins[i];
+      if (plugin instanceof Resizable) return plugin;
+    }
+    return undefined;
+  }
+
+  /**
+   * Clear locked column widths and return to content-based (auto) layout.
+   * Call when the container size or data shape changes and you want columns
+   * to reflow naturally (e.g. after a responsive breakpoint, sidebar toggle,
+   * or navigating to a view with different available width).
+   *
+   * @param relock - If true (default), re-measure and lock widths again under
+   *   fixed layout after the browser has applied auto layout. If false, leave
+   *   the table in auto layout until the next resize drag or preserve.
+   */
+  resetColumnWidths(relock = true): void {
+    const resizable = this.getResizablePlugin();
+    resizable?.reset();
+    if (!relock || !resizable) return;
+    // Force a layout pass under auto so measurements reflect current container.
+    void this.container.offsetWidth;
+    this.preserveColumnWidths();
+  }
+
   private compareRows(
     a: RowData,
     b: RowData,
@@ -615,16 +642,7 @@ export class Table {
     const column = this.getColumn(columnId);
     if (!column) return;
     column.visible = column.visible === false ? true : false;
-
-    let resizable: Resizable | undefined;
-    for (let i = 0; i < this.plugins.length; i++) {
-      const plugin = this.plugins[i];
-      if (plugin instanceof Resizable) {
-        resizable = plugin;
-        break;
-      }
-    }
-    resizable?.reset();
+    this.getResizablePlugin()?.reset();
     this.update();
   }
 
@@ -644,11 +662,8 @@ export class Table {
     // With Resizable active, lock measured column widths under fixed layout
     // immediately so the first resize is not blocked by content min-width or
     // a CSS width:100% redistribution.
-    for (let i = 0; i < this.plugins.length; i++) {
-      if (this.plugins[i] instanceof Resizable) {
-        this.preserveColumnWidths();
-        break;
-      }
+    if (this.getResizablePlugin()) {
+      this.preserveColumnWidths();
     }
     return this.container;
   }
@@ -792,7 +807,8 @@ export class Resizable extends Cell implements Plugin {
     this.onPointerMove = this.hoverCellBorder.bind(this);
     this.onPointerDown = this.resizeStartCell.bind(this);
     this.onPointerUp = this.resizeEndCell.bind(this);
-    this.onResize = this.reset.bind(this);
+    // Window resize: clear locked widths then re-measure against the new viewport.
+    this.onResize = () => this.table.resetColumnWidths(true);
   }
 
   addEventListeners(): void {

@@ -67,6 +67,30 @@ var Table = class _Table {
       allHeaderCells[i].style.minWidth = "0";
     }
   }
+  getResizablePlugin() {
+    for (let i = 0; i < this.plugins.length; i++) {
+      const plugin = this.plugins[i];
+      if (plugin instanceof Resizable) return plugin;
+    }
+    return void 0;
+  }
+  /**
+   * Clear locked column widths and return to content-based (auto) layout.
+   * Call when the container size or data shape changes and you want columns
+   * to reflow naturally (e.g. after a responsive breakpoint, sidebar toggle,
+   * or navigating to a view with different available width).
+   *
+   * @param relock - If true (default), re-measure and lock widths again under
+   *   fixed layout after the browser has applied auto layout. If false, leave
+   *   the table in auto layout until the next resize drag or preserve.
+   */
+  resetColumnWidths(relock = true) {
+    const resizable = this.getResizablePlugin();
+    resizable?.reset();
+    if (!relock || !resizable) return;
+    void this.container.offsetWidth;
+    this.preserveColumnWidths();
+  }
   compareRows(a, b, column, columnId, order) {
     if (column?.compare) {
       const result = column.compare(a, b);
@@ -430,15 +454,7 @@ var Table = class _Table {
     const column = this.getColumn(columnId);
     if (!column) return;
     column.visible = column.visible === false ? true : false;
-    let resizable;
-    for (let i = 0; i < this.plugins.length; i++) {
-      const plugin = this.plugins[i];
-      if (plugin instanceof Resizable) {
-        resizable = plugin;
-        break;
-      }
-    }
-    resizable?.reset();
+    this.getResizablePlugin()?.reset();
     this.update();
   }
   render(container) {
@@ -453,11 +469,8 @@ var Table = class _Table {
     this.container.appendChild(this.renderTbody());
     if (this.columnSelector) this.renderColumnSelector();
     if (this.pagination) this.pagination.render();
-    for (let i = 0; i < this.plugins.length; i++) {
-      if (this.plugins[i] instanceof Resizable) {
-        this.preserveColumnWidths();
-        break;
-      }
+    if (this.getResizablePlugin()) {
+      this.preserveColumnWidths();
     }
     return this.container;
   }
@@ -554,7 +567,7 @@ var Resizable = class extends Cell {
     this.onPointerMove = this.hoverCellBorder.bind(this);
     this.onPointerDown = this.resizeStartCell.bind(this);
     this.onPointerUp = this.resizeEndCell.bind(this);
-    this.onResize = this.reset.bind(this);
+    this.onResize = () => this.table.resetColumnWidths(true);
   }
   addEventListeners() {
     this.table.container.style.tableLayout = "auto";
