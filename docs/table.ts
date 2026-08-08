@@ -152,20 +152,62 @@ export class Table {
     if (!headerRow) return;
     // Measure with subpixel precision, then apply with border-box so the visual
     // width is preserved as closely as possible regardless of box-sizing.
+    // Lock the table's own width in px so a CSS width:100% cannot redistribute
+    // space and fight the explicit column widths during resize.
+    // min-width:0 lets columns shrink below content intrinsic size under fixed layout.
     const ths = headerRow.cells;
     const widths: number[] = [];
+    let total = 0;
     for (let i = 0; i < ths.length; i++) {
-      widths.push(ths[i].getBoundingClientRect().width);
+      const w = ths[i].getBoundingClientRect().width;
+      widths.push(w);
+      total += w;
     }
     this.container.style.tableLayout = "fixed";
+    this.container.style.width = `${total}px`;
     for (let i = 0; i < ths.length; i++) {
       const th = ths[i] as HTMLTableCellElement;
       const w = widths[i];
       th.style.boxSizing = "border-box";
       th.style.width = `${w}px`;
-      th.style.minWidth = `${w}px`;
-      th.style.maxWidth = `${w}px`;
+      th.style.minWidth = "0";
     }
+    // Search-row / other thead cells must also allow shrink (inputs have min-width).
+    const allHeaderCells = this.container.querySelectorAll<
+      HTMLTableCellElement
+    >(
+      "thead th",
+    );
+    for (let i = 0; i < allHeaderCells.length; i++) {
+      allHeaderCells[i].style.minWidth = "0";
+    }
+  }
+
+  private getResizablePlugin(): Resizable | undefined {
+    for (let i = 0; i < this.plugins.length; i++) {
+      const plugin = this.plugins[i];
+      if (plugin instanceof Resizable) return plugin;
+    }
+    return undefined;
+  }
+
+  /**
+   * Clear locked column widths and return to content-based (auto) layout.
+   * Call when the container size or data shape changes and you want columns
+   * to reflow naturally (e.g. after a responsive breakpoint, sidebar toggle,
+   * or navigating to a view with different available width).
+   *
+   * @param relock - If true (default), re-measure and lock widths again under
+   *   fixed layout after the browser has applied auto layout. If false, leave
+   *   the table in auto layout until the next resize drag or preserve.
+   */
+  resetColumnWidths(relock = true): void {
+    const resizable = this.getResizablePlugin();
+    resizable?.reset();
+    if (!relock || !resizable) return;
+    // Force a layout pass under auto so measurements reflect current container.
+    void this.container.offsetWidth;
+    this.preserveColumnWidths();
   }
 
   private compareRows(
@@ -290,11 +332,16 @@ export class Table {
           if (text) cell.title = text;
         }
       }
-      // Prevent long cell content from expanding columns (works well with table-layout: fixed)
+      // Prevent long cell content from expanding columns (works well with table-layout: fixed).
+      // min-width:0 is required so columns can shrink below intrinsic content width.
+      cell.style.minWidth = "0";
       if (tagName === "td") {
         cell.style.whiteSpace = "nowrap";
         cell.style.overflow = "hidden";
         cell.style.textOverflow = "ellipsis";
+      } else if (tagName === "th") {
+        // Header text should also clip under fixed layout so it cannot block shrink.
+        cell.style.overflow = "hidden";
       }
       if (isHeaderRow && this.isColumnObjectSortable(column)) {
         cell.tabIndex = 0;
@@ -327,6 +374,9 @@ export class Table {
         searchOptions.placeholder ?? "";
       input.dataset["columnId"] = column.id;
       input.value = this.filters[column.id] ?? "";
+      // Allow the column to shrink below the input's intrinsic min-width.
+      input.style.minWidth = "0";
+      input.style.width = "100%";
       input.addEventListener("input", (event) => {
         this.filters[column.id] = (event.target as HTMLInputElement).value;
         globalThis.clearTimeout(this.searchDebounceTimers[column.id]);
@@ -592,16 +642,7 @@ export class Table {
     const column = this.getColumn(columnId);
     if (!column) return;
     column.visible = column.visible === false ? true : false;
-
-    let resizable: Resizable | undefined;
-    for (let i = 0; i < this.plugins.length; i++) {
-      const plugin = this.plugins[i];
-      if (plugin instanceof Resizable) {
-        resizable = plugin;
-        break;
-      }
-    }
-    resizable?.reset();
+    this.getResizablePlugin()?.reset();
     this.update();
   }
 
@@ -618,6 +659,12 @@ export class Table {
     this.container.appendChild(this.renderTbody());
     if (this.columnSelector) this.renderColumnSelector();
     if (this.pagination) this.pagination.render();
+    // With Resizable active, lock measured column widths under fixed layout
+    // immediately so the first resize is not blocked by content min-width or
+    // a CSS width:100% redistribution.
+    if (this.getResizablePlugin()) {
+      this.preserveColumnWidths();
+    }
     return this.container;
   }
 
@@ -760,7 +807,8 @@ export class Resizable extends Cell implements Plugin {
     this.onPointerMove = this.hoverCellBorder.bind(this);
     this.onPointerDown = this.resizeStartCell.bind(this);
     this.onPointerUp = this.resizeEndCell.bind(this);
-    this.onResize = this.reset.bind(this);
+    // Window resize: clear locked widths then re-measure against the new viewport.
+    this.onResize = () => this.table.resetColumnWidths(true);
   }
 
   addEventListeners(): void {
@@ -779,6 +827,7 @@ export class Resizable extends Cell implements Plugin {
 
   removeEventListeners(): void {
     this.table.container.style.tableLayout = "inherit";
+    this.table.container.style.width = "";
     this.table.container.removeEventListener(
       "pointermove",
       this.onPointerMove as EventListener,
@@ -793,6 +842,7 @@ export class Resizable extends Cell implements Plugin {
 
   reset(): void {
     this.table.container.style.tableLayout = "auto";
+    this.table.container.style.width = "";
     const headers = this.table.container.querySelectorAll<HTMLTableCellElement>(
       "thead th",
     );
@@ -825,12 +875,19 @@ export class Resizable extends Cell implements Plugin {
     cell.setPointerCapture(event.pointerId);
     const columns = row.getElementsByTagName("th");
     const index = this.findIndex(columns, cell);
+    // Snapshot current widths, then lock table to fixed layout + explicit px
+    // width so CSS width:100% / content min-width cannot resist shrinking.
+    let total = 0;
     for (let i = 0; i < columns.length; i++) {
       const column = columns[i];
       const w = column.getBoundingClientRect().width;
+      total += w;
       column.style.boxSizing = "border-box";
       column.style.width = `${w}px`;
+      column.style.minWidth = "0";
     }
+    this.table.container.style.tableLayout = "fixed";
+    this.table.container.style.width = `${total}px`;
     this.resizingCells = status === "left"
       ? { left: columns[index - 1] as HTMLElement | undefined, right: cell }
       : { left: cell, right: columns[index + 1] as HTMLElement | undefined };
