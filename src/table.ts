@@ -10,6 +10,8 @@ export interface Column {
   compare?: (a: RowData, b: RowData) => number;
   render?: (row: RowData, td: HTMLTableCellElement) => void;
   renderHeader?: (th: HTMLTableCellElement) => void;
+  /** Preferred column width in CSS pixels. Honored by Resizable / preserveColumnWidths. */
+  width?: number;
 }
 
 export type SortOrder = "ascent" | "descent";
@@ -111,6 +113,12 @@ export class Table {
   private plugins: Plugin[] = [];
   pagination?: Pagination;
   private columnSelector?: ColumnSelectorOptions;
+  /**
+   * Fixed widths declared via column.width or renderHeader(th.style.width).
+   * Kept on the Table instance (not DOM style) so Resizable.reset() cannot
+   * erase the author's intent before the next preserveColumnWidths().
+   */
+  private fixedColumnWidths = new Map<ColumnId, number>();
 
   constructor(options: TableOptions) {
     this.options = options;
@@ -144,6 +152,75 @@ export class Table {
     this.displayDataCache = null;
   }
 
+  /**
+   * Resolve a column's fixed width (px), if any.
+   * Priority: column.width → fixedColumnWidths map (from renderHeader style.width).
+   * Never relies on th.style.width at measure time — Resizable.reset() clears it.
+   */
+  private getFixedColumnWidth(column: Column | undefined): number | null {
+    if (!column) return null;
+    if (typeof column.width === "number" && column.width > 0) {
+      return column.width;
+    }
+    const fromMap = this.fixedColumnWidths.get(column.id);
+    if (typeof fromMap === "number" && fromMap > 0) return fromMap;
+    return null;
+  }
+
+  private applyWidthToCell(
+    cell: HTMLTableCellElement,
+    width: number,
+    hard: boolean,
+  ): void {
+    cell.style.boxSizing = "border-box";
+    if (hard) {
+      // !important: Bootstrap .w-100 (!important) forces the table to full width;
+      // without this, fixed columns (e.g. 32px toolbar) scale up with the rest
+      // until the next preserveColumnWidths() (sort / resize / filter).
+      cell.style.setProperty("width", `${width}px`, "important");
+      cell.style.setProperty("min-width", `${width}px`, "important");
+      cell.style.setProperty("max-width", `${width}px`, "important");
+    } else {
+      cell.style.width = `${width}px`;
+      cell.style.minWidth = "0";
+      cell.style.maxWidth = "";
+    }
+  }
+
+  private layoutObserver: ResizeObserver | null = null;
+  private pendingPreserve = false;
+
+  /**
+   * Re-run preserveColumnWidths once the table (or its parent) actually has a
+   * non-zero layout size. MIDI library renders into a Bootstrap modal that is
+   * display:none on first load — preserve then sees parentWidth=0 and the
+   * fixed 32px toolbar column only becomes correct on the next explicit
+   * preserve (sort / filter / resize). Observe until laid out, then disconnect.
+   */
+  private ensureLayoutObserver(): void {
+    if (this.layoutObserver || typeof ResizeObserver === "undefined") return;
+    if (!this.container) return;
+    this.layoutObserver = new ResizeObserver(() => {
+      if (!this.container) return;
+      const parentWidth =
+        this.container.parentElement?.getBoundingClientRect().width ?? 0;
+      const selfWidth = this.container.getBoundingClientRect().width;
+      if (parentWidth <= 0 && selfWidth <= 0) return;
+      // Defer to the next frame so we measure after the browser's layout pass
+      // (modal show animation / display toggle).
+      if (this.pendingPreserve) return;
+      this.pendingPreserve = true;
+      requestAnimationFrame(() => {
+        this.pendingPreserve = false;
+        this.preserveColumnWidths();
+      });
+    });
+    this.layoutObserver.observe(this.container);
+    if (this.container.parentElement) {
+      this.layoutObserver.observe(this.container.parentElement);
+    }
+  }
+
   private preserveColumnWidths(): void {
     if (!this.container) return;
     const headerRow = this.container.querySelector<HTMLTableRowElement>(
@@ -152,34 +229,97 @@ export class Table {
     if (!headerRow) return;
     // Measure with subpixel precision, then apply with border-box so the visual
     // width is preserved as closely as possible regardless of box-sizing.
-    // Lock the table's own width in px so a CSS width:100% cannot redistribute
-    // space and fight the explicit column widths during resize.
-    // min-width:0 lets columns shrink below content intrinsic size under fixed layout.
+    // Fixed columns always use the declared px value (column.width / map), not
+    // the measured size — otherwise reset() wiping style.width loses the intent.
+    //
+    // Important: do NOT shrink the table to sum(column widths) when the parent
+    // is wider (e.g. Bootstrap .w-100 / modal body). That makes the whole table
+    // look "collapsed". Always use width:100% and only hard-pin fixed columns;
+    // other columns share the remaining space under table-layout:fixed.
+    // Locking flexible columns to px while the table is later forced to 100%
+    // (Bootstrap .w-100 !important) causes proportional scaling of ALL columns,
+    // including the intended 32px toolbar column.
     const ths = headerRow.cells;
+    const visibleColumns = this.getVisibleColumns();
     const widths: number[] = [];
-    let total = 0;
-    for (let i = 0; i < ths.length; i++) {
-      const w = ths[i].getBoundingClientRect().width;
-      widths.push(w);
-      total += w;
-    }
-    this.container.style.tableLayout = "fixed";
-    this.container.style.width = `${total}px`;
     for (let i = 0; i < ths.length; i++) {
       const th = ths[i] as HTMLTableCellElement;
-      const w = widths[i];
-      th.style.boxSizing = "border-box";
-      th.style.width = `${w}px`;
-      th.style.minWidth = "0";
+      const fixed = this.getFixedColumnWidth(visibleColumns[i]);
+      // Guard against 0px measurements (hidden modal / not yet laid out).
+      const measured = th.getBoundingClientRect().width;
+      const w = fixed ?? (measured > 0 ? measured : 80);
+      widths.push(w);
     }
-    // Search-row / other thead cells must also allow shrink (inputs have min-width).
-    const allHeaderCells = this.container.querySelectorAll<
-      HTMLTableCellElement
-    >(
-      "thead th",
+
+    const parentWidth =
+      this.container.parentElement?.getBoundingClientRect().width ?? 0;
+    const laidOut = parentWidth > 0 ||
+      this.container.getBoundingClientRect().width > 0;
+
+    this.container.style.tableLayout = "fixed";
+    // Prefer 100% always so flexible columns absorb leftover space. Bootstrap
+    // .w-100 is !important and would override a px width anyway.
+    this.container.style.width = "100%";
+
+    // <colgroup> pins fixed columns reliably; flexible columns stay unconstrained
+    // so leftover space is distributed when the table is width:100%.
+    this.container.querySelector("colgroup")?.remove();
+    const colgroup = document.createElement("colgroup");
+    for (let i = 0; i < widths.length; i++) {
+      const col = document.createElement("col");
+      const fixed = this.getFixedColumnWidth(visibleColumns[i]);
+      if (fixed !== null) {
+        col.style.setProperty("width", `${fixed}px`, "important");
+        col.style.setProperty("min-width", `${fixed}px`, "important");
+        col.style.setProperty("max-width", `${fixed}px`, "important");
+      }
+      colgroup.appendChild(col);
+    }
+    this.container.insertBefore(colgroup, this.container.firstChild);
+
+    // Pin cells: hard constraints only on fixed columns.
+    const headerRows = this.container.querySelectorAll<HTMLTableRowElement>(
+      "thead tr",
     );
-    for (let i = 0; i < allHeaderCells.length; i++) {
-      allHeaderCells[i].style.minWidth = "0";
+    for (let r = 0; r < headerRows.length; r++) {
+      const cells = headerRows[r].cells;
+      for (let i = 0; i < cells.length; i++) {
+        const fixed = this.getFixedColumnWidth(visibleColumns[i]);
+        const cell = cells[i] as HTMLTableCellElement;
+        if (fixed !== null) {
+          this.applyWidthToCell(cell, fixed, true);
+        } else {
+          cell.style.boxSizing = "border-box";
+          cell.style.minWidth = "0";
+          cell.style.maxWidth = "";
+          cell.style.width = "";
+        }
+      }
+    }
+
+    const bodyRows = this.container.querySelectorAll<HTMLTableRowElement>(
+      "tbody tr",
+    );
+    for (let r = 0; r < bodyRows.length; r++) {
+      const cells = bodyRows[r].cells;
+      for (let i = 0; i < cells.length; i++) {
+        const fixed = this.getFixedColumnWidth(visibleColumns[i]);
+        const cell = cells[i] as HTMLTableCellElement;
+        if (fixed !== null) {
+          this.applyWidthToCell(cell, fixed, true);
+        } else {
+          cell.style.minWidth = "0";
+          cell.style.maxWidth = "";
+          cell.style.width = "";
+        }
+      }
+    }
+
+    // If we preserved while hidden (modal not yet shown), watch for layout and
+    // re-apply once the table is actually visible — that is the moment the
+    // 32px toolbar column would otherwise stay content-sized until sort/filter.
+    if (!laidOut) {
+      this.ensureLayoutObserver();
     }
   }
 
@@ -204,7 +344,8 @@ export class Table {
   resetColumnWidths(relock = true): void {
     const resizable = this.getResizablePlugin();
     resizable?.reset();
-    if (!relock || !resizable) return;
+    if (!relock) return;
+    if (!resizable && this.fixedColumnWidths.size === 0) return;
     // Force a layout pass under auto so measurements reflect current container.
     void this.container.offsetWidth;
     this.preserveColumnWidths();
@@ -319,10 +460,48 @@ export class Table {
     for (let i = 0; i < visibleColumns.length; i++) {
       const column = visibleColumns[i];
       const cell = document.createElement(tagName);
-      if (isHeaderRow && column.renderHeader) {
-        column.renderHeader(cell as HTMLTableCellElement);
-      } else if (!isHeaderRow && column.render) {
+      if (isHeaderRow) {
+        // Prefer column.width; renderHeader may also set style.width (legacy).
+        // Store the resolved px value on fixedColumnWidths so Resizable.reset()
+        // (which clears style.width) cannot lose the intended fixed size.
+        if (typeof column.width === "number" && column.width > 0) {
+          cell.style.width = `${column.width}px`;
+          this.fixedColumnWidths.set(column.id, column.width);
+        }
+        if (column.renderHeader) {
+          column.renderHeader(cell as HTMLTableCellElement);
+        } else {
+          const value = datum[column.id] ?? this.emptyString;
+          cell.appendChild(format(value, column.id));
+        }
+        const preset = cell.style.width;
+        if (preset && preset.endsWith("px")) {
+          const n = parseFloat(preset);
+          if (n > 0) {
+            this.fixedColumnWidths.set(column.id, n);
+            cell.dataset["tableFixedWidth"] = String(n);
+          }
+        } else if (this.fixedColumnWidths.has(column.id)) {
+          cell.dataset["tableFixedWidth"] = String(
+            this.fixedColumnWidths.get(column.id),
+          );
+        }
+        // Hard-pin fixed header cells immediately so content (buttons, icons)
+        // cannot inflate the column before preserveColumnWidths() runs.
+        const fixedHeader = this.getFixedColumnWidth(column);
+        if (fixedHeader !== null) {
+          this.applyWidthToCell(
+            cell as HTMLTableCellElement,
+            fixedHeader,
+            true,
+          );
+        }
+      } else if (column.render) {
         column.render(datum, cell as HTMLTableCellElement);
+        const fixed = this.getFixedColumnWidth(column);
+        if (fixed !== null) {
+          this.applyWidthToCell(cell as HTMLTableCellElement, fixed, true);
+        }
       } else {
         const value = datum[column.id] ?? this.emptyString;
         cell.appendChild(format(value, column.id));
@@ -331,10 +510,19 @@ export class Table {
           const text = String(value);
           if (text) cell.title = text;
         }
+        const fixed = this.getFixedColumnWidth(column);
+        if (fixed !== null) {
+          this.applyWidthToCell(cell as HTMLTableCellElement, fixed, true);
+        }
       }
       // Prevent long cell content from expanding columns (works well with table-layout: fixed).
-      // min-width:0 is required so columns can shrink below intrinsic content width.
-      cell.style.minWidth = "0";
+      // min-width:0 is required so *flexible* columns can shrink below intrinsic content width.
+      // Fixed-width columns must keep hard min/max from applyWidthToCell — overwriting
+      // them with 0 is what allowed toolbar columns (e.g. 32px) to balloon to ~80px.
+      const fixedWidth = this.getFixedColumnWidth(column);
+      if (fixedWidth === null) {
+        cell.style.minWidth = "0";
+      }
       if (tagName === "td") {
         cell.style.whiteSpace = "nowrap";
         cell.style.overflow = "hidden";
@@ -363,6 +551,16 @@ export class Table {
     for (let i = 0; i < visibleColumns.length; i++) {
       const column = visibleColumns[i];
       const th = document.createElement("th");
+      // Search-row cells must honor the same fixed width as the header, otherwise
+      // an empty th (searchPlaceholder: false) or a form-control can force the
+      // column wider than column.width / renderHeader intended.
+      const fixed = this.getFixedColumnWidth(column);
+      if (fixed !== null) {
+        this.applyWidthToCell(th, fixed, true);
+        th.dataset["tableFixedWidth"] = String(fixed);
+      } else {
+        th.style.minWidth = "0";
+      }
       if (column.searchPlaceholder === false) {
         tr.appendChild(th);
         continue;
@@ -659,11 +857,13 @@ export class Table {
     this.container.appendChild(this.renderTbody());
     if (this.columnSelector) this.renderColumnSelector();
     if (this.pagination) this.pagination.render();
-    // With Resizable active, lock measured column widths under fixed layout
-    // immediately so the first resize is not blocked by content min-width or
-    // a CSS width:100% redistribution.
-    if (this.getResizablePlugin()) {
+    // Lock column widths under fixed layout whenever Resizable is active OR any
+    // column declared a fixed width (column.width / renderHeader style.width).
+    // Without this, fixed columns only got soft style.width and content
+    // (e.g. a toolbar button) could expand them past the intended px size.
+    if (this.getResizablePlugin() || this.fixedColumnWidths.size > 0) {
       this.preserveColumnWidths();
+      this.ensureLayoutObserver();
     }
     return this.container;
   }
@@ -671,6 +871,11 @@ export class Table {
   updateTbody(): void {
     this.container.querySelector("tbody")?.remove();
     this.container.appendChild(this.renderTbody());
+    // Body cells recreated above already apply fixed widths in renderColumns,
+    // but re-run preserve so <colgroup> / header pins stay in sync after paging.
+    if (this.getResizablePlugin() || this.fixedColumnWidths.size > 0) {
+      this.preserveColumnWidths();
+    }
   }
 
   getRowElement(index: number): HTMLTableRowElement | undefined {
@@ -693,6 +898,8 @@ export class Table {
     for (const timer of Object.values(this.searchDebounceTimers)) {
       globalThis.clearTimeout(timer);
     }
+    this.layoutObserver?.disconnect();
+    this.layoutObserver = null;
   }
 }
 
@@ -877,14 +1084,21 @@ export class Resizable extends Cell implements Plugin {
     const index = this.findIndex(columns, cell);
     // Snapshot current widths, then lock table to fixed layout + explicit px
     // width so CSS width:100% / content min-width cannot resist shrinking.
+    // Prefer data-table-fixed-width when present so fixed columns keep their size.
     let total = 0;
     for (let i = 0; i < columns.length; i++) {
-      const column = columns[i];
-      const w = column.getBoundingClientRect().width;
+      const column = columns[i] as HTMLTableCellElement;
+      const fixed = Number(column.dataset["tableFixedWidth"]);
+      const w = Number.isFinite(fixed) && fixed > 0
+        ? fixed
+        : column.getBoundingClientRect().width;
       total += w;
       column.style.boxSizing = "border-box";
       column.style.width = `${w}px`;
       column.style.minWidth = "0";
+      if (Number.isFinite(fixed) && fixed > 0) {
+        column.style.maxWidth = `${w}px`;
+      }
     }
     this.table.container.style.tableLayout = "fixed";
     this.table.container.style.width = `${total}px`;
@@ -897,10 +1111,20 @@ export class Resizable extends Cell implements Plugin {
     this.resizingCells = null;
   }
 
+  private isFixedWidthCell(el: HTMLElement | undefined): boolean {
+    if (!el) return false;
+    const fixed = Number(
+      (el as HTMLTableCellElement).dataset["tableFixedWidth"],
+    );
+    return Number.isFinite(fixed) && fixed > 0;
+  }
+
   private hoverCellBorder(event: PointerEvent): void {
     if (this.resizingCells) {
       const { left, right } = this.resizingCells;
       if (!left || !right) return;
+      // Do not drag edges of columns that declared a fixed width.
+      if (this.isFixedWidthCell(left) || this.isFixedWidthCell(right)) return;
       const leftWidth = left.offsetWidth + event.movementX;
       const rightWidth = right.offsetWidth - event.movementX;
       if (leftWidth <= 30 || rightWidth <= 30) return;

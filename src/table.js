@@ -1,4 +1,4 @@
-// table.ts
+// src/table.ts
 var Table = class _Table {
   container;
   options;
@@ -13,6 +13,12 @@ var Table = class _Table {
   plugins = [];
   pagination;
   columnSelector;
+  /**
+   * Fixed widths declared via column.width or renderHeader(th.style.width).
+   * Kept on the Table instance (not DOM style) so Resizable.reset() cannot
+   * erase the author's intent before the next preserveColumnWidths().
+   */
+  fixedColumnWidths = /* @__PURE__ */ new Map();
   constructor(options) {
     this.options = options;
   }
@@ -41,30 +47,125 @@ var Table = class _Table {
   invalidateDisplayCache() {
     this.displayDataCache = null;
   }
+  /**
+   * Resolve a column's fixed width (px), if any.
+   * Priority: column.width → fixedColumnWidths map (from renderHeader style.width).
+   * Never relies on th.style.width at measure time — Resizable.reset() clears it.
+   */
+  getFixedColumnWidth(column) {
+    if (!column) return null;
+    if (typeof column.width === "number" && column.width > 0) {
+      return column.width;
+    }
+    const fromMap = this.fixedColumnWidths.get(column.id);
+    if (typeof fromMap === "number" && fromMap > 0) return fromMap;
+    return null;
+  }
+  applyWidthToCell(cell, width, hard) {
+    cell.style.boxSizing = "border-box";
+    if (hard) {
+      cell.style.setProperty("width", `${width}px`, "important");
+      cell.style.setProperty("min-width", `${width}px`, "important");
+      cell.style.setProperty("max-width", `${width}px`, "important");
+    } else {
+      cell.style.width = `${width}px`;
+      cell.style.minWidth = "0";
+      cell.style.maxWidth = "";
+    }
+  }
+  layoutObserver = null;
+  pendingPreserve = false;
+  /**
+   * Re-run preserveColumnWidths once the table (or its parent) actually has a
+   * non-zero layout size. MIDI library renders into a Bootstrap modal that is
+   * display:none on first load — preserve then sees parentWidth=0 and the
+   * fixed 32px toolbar column only becomes correct on the next explicit
+   * preserve (sort / filter / resize). Observe until laid out, then disconnect.
+   */
+  ensureLayoutObserver() {
+    if (this.layoutObserver || typeof ResizeObserver === "undefined") return;
+    if (!this.container) return;
+    this.layoutObserver = new ResizeObserver(() => {
+      if (!this.container) return;
+      const parentWidth = this.container.parentElement?.getBoundingClientRect().width ?? 0;
+      const selfWidth = this.container.getBoundingClientRect().width;
+      if (parentWidth <= 0 && selfWidth <= 0) return;
+      if (this.pendingPreserve) return;
+      this.pendingPreserve = true;
+      requestAnimationFrame(() => {
+        this.pendingPreserve = false;
+        this.preserveColumnWidths();
+      });
+    });
+    this.layoutObserver.observe(this.container);
+    if (this.container.parentElement) {
+      this.layoutObserver.observe(this.container.parentElement);
+    }
+  }
   preserveColumnWidths() {
     if (!this.container) return;
     const headerRow = this.container.querySelector("thead tr");
     if (!headerRow) return;
     const ths = headerRow.cells;
+    const visibleColumns = this.getVisibleColumns();
     const widths = [];
-    let total = 0;
-    for (let i = 0; i < ths.length; i++) {
-      const w = ths[i].getBoundingClientRect().width;
-      widths.push(w);
-      total += w;
-    }
-    this.container.style.tableLayout = "fixed";
-    this.container.style.width = `${total}px`;
     for (let i = 0; i < ths.length; i++) {
       const th = ths[i];
-      const w = widths[i];
-      th.style.boxSizing = "border-box";
-      th.style.width = `${w}px`;
-      th.style.minWidth = "0";
+      const fixed = this.getFixedColumnWidth(visibleColumns[i]);
+      const measured = th.getBoundingClientRect().width;
+      const w = fixed ?? (measured > 0 ? measured : 80);
+      widths.push(w);
     }
-    const allHeaderCells = this.container.querySelectorAll("thead th");
-    for (let i = 0; i < allHeaderCells.length; i++) {
-      allHeaderCells[i].style.minWidth = "0";
+    const parentWidth = this.container.parentElement?.getBoundingClientRect().width ?? 0;
+    const laidOut = parentWidth > 0 || this.container.getBoundingClientRect().width > 0;
+    this.container.style.tableLayout = "fixed";
+    this.container.style.width = "100%";
+    this.container.querySelector("colgroup")?.remove();
+    const colgroup = document.createElement("colgroup");
+    for (let i = 0; i < widths.length; i++) {
+      const col = document.createElement("col");
+      const fixed = this.getFixedColumnWidth(visibleColumns[i]);
+      if (fixed !== null) {
+        col.style.setProperty("width", `${fixed}px`, "important");
+        col.style.setProperty("min-width", `${fixed}px`, "important");
+        col.style.setProperty("max-width", `${fixed}px`, "important");
+      }
+      colgroup.appendChild(col);
+    }
+    this.container.insertBefore(colgroup, this.container.firstChild);
+    const headerRows = this.container.querySelectorAll("thead tr");
+    for (let r = 0; r < headerRows.length; r++) {
+      const cells = headerRows[r].cells;
+      for (let i = 0; i < cells.length; i++) {
+        const fixed = this.getFixedColumnWidth(visibleColumns[i]);
+        const cell = cells[i];
+        if (fixed !== null) {
+          this.applyWidthToCell(cell, fixed, true);
+        } else {
+          cell.style.boxSizing = "border-box";
+          cell.style.minWidth = "0";
+          cell.style.maxWidth = "";
+          cell.style.width = "";
+        }
+      }
+    }
+    const bodyRows = this.container.querySelectorAll("tbody tr");
+    for (let r = 0; r < bodyRows.length; r++) {
+      const cells = bodyRows[r].cells;
+      for (let i = 0; i < cells.length; i++) {
+        const fixed = this.getFixedColumnWidth(visibleColumns[i]);
+        const cell = cells[i];
+        if (fixed !== null) {
+          this.applyWidthToCell(cell, fixed, true);
+        } else {
+          cell.style.minWidth = "0";
+          cell.style.maxWidth = "";
+          cell.style.width = "";
+        }
+      }
+    }
+    if (!laidOut) {
+      this.ensureLayoutObserver();
     }
   }
   getResizablePlugin() {
@@ -87,7 +188,8 @@ var Table = class _Table {
   resetColumnWidths(relock = true) {
     const resizable = this.getResizablePlugin();
     resizable?.reset();
-    if (!relock || !resizable) return;
+    if (!relock) return;
+    if (!resizable && this.fixedColumnWidths.size === 0) return;
     void this.container.offsetWidth;
     this.preserveColumnWidths();
   }
@@ -170,10 +272,37 @@ var Table = class _Table {
     for (let i = 0; i < visibleColumns.length; i++) {
       const column = visibleColumns[i];
       const cell = document.createElement(tagName);
-      if (isHeaderRow && column.renderHeader) {
-        column.renderHeader(cell);
-      } else if (!isHeaderRow && column.render) {
+      if (isHeaderRow) {
+        if (typeof column.width === "number" && column.width > 0) {
+          cell.style.width = `${column.width}px`;
+          this.fixedColumnWidths.set(column.id, column.width);
+        }
+        if (column.renderHeader) {
+          column.renderHeader(cell);
+        } else {
+          const value = datum[column.id] ?? this.emptyString;
+          cell.appendChild(format(value, column.id));
+        }
+        const preset = cell.style.width;
+        if (preset && preset.endsWith("px")) {
+          const n = parseFloat(preset);
+          if (n > 0) {
+            this.fixedColumnWidths.set(column.id, n);
+            cell.dataset["tableFixedWidth"] = String(n);
+          }
+        } else if (this.fixedColumnWidths.has(column.id)) {
+          cell.dataset["tableFixedWidth"] = String(this.fixedColumnWidths.get(column.id));
+        }
+        const fixedHeader = this.getFixedColumnWidth(column);
+        if (fixedHeader !== null) {
+          this.applyWidthToCell(cell, fixedHeader, true);
+        }
+      } else if (column.render) {
         column.render(datum, cell);
+        const fixed = this.getFixedColumnWidth(column);
+        if (fixed !== null) {
+          this.applyWidthToCell(cell, fixed, true);
+        }
       } else {
         const value = datum[column.id] ?? this.emptyString;
         cell.appendChild(format(value, column.id));
@@ -181,8 +310,15 @@ var Table = class _Table {
           const text = String(value);
           if (text) cell.title = text;
         }
+        const fixed = this.getFixedColumnWidth(column);
+        if (fixed !== null) {
+          this.applyWidthToCell(cell, fixed, true);
+        }
       }
-      cell.style.minWidth = "0";
+      const fixedWidth = this.getFixedColumnWidth(column);
+      if (fixedWidth === null) {
+        cell.style.minWidth = "0";
+      }
       if (tagName === "td") {
         cell.style.whiteSpace = "nowrap";
         cell.style.overflow = "hidden";
@@ -209,6 +345,13 @@ var Table = class _Table {
     for (let i = 0; i < visibleColumns.length; i++) {
       const column = visibleColumns[i];
       const th = document.createElement("th");
+      const fixed = this.getFixedColumnWidth(column);
+      if (fixed !== null) {
+        this.applyWidthToCell(th, fixed, true);
+        th.dataset["tableFixedWidth"] = String(fixed);
+      } else {
+        th.style.minWidth = "0";
+      }
       if (column.searchPlaceholder === false) {
         tr.appendChild(th);
         continue;
@@ -469,14 +612,18 @@ var Table = class _Table {
     this.container.appendChild(this.renderTbody());
     if (this.columnSelector) this.renderColumnSelector();
     if (this.pagination) this.pagination.render();
-    if (this.getResizablePlugin()) {
+    if (this.getResizablePlugin() || this.fixedColumnWidths.size > 0) {
       this.preserveColumnWidths();
+      this.ensureLayoutObserver();
     }
     return this.container;
   }
   updateTbody() {
     this.container.querySelector("tbody")?.remove();
     this.container.appendChild(this.renderTbody());
+    if (this.getResizablePlugin() || this.fixedColumnWidths.size > 0) {
+      this.preserveColumnWidths();
+    }
   }
   getRowElement(index) {
     return this.container.querySelector(`tbody > tr[data-row-index="${index}"]`) ?? void 0;
@@ -494,6 +641,8 @@ var Table = class _Table {
     for (const timer of Object.values(this.searchDebounceTimers)) {
       globalThis.clearTimeout(timer);
     }
+    this.layoutObserver?.disconnect();
+    this.layoutObserver = null;
   }
 };
 var Cell = class {
@@ -615,11 +764,15 @@ var Resizable = class extends Cell {
     let total = 0;
     for (let i = 0; i < columns.length; i++) {
       const column = columns[i];
-      const w = column.getBoundingClientRect().width;
+      const fixed = Number(column.dataset["tableFixedWidth"]);
+      const w = Number.isFinite(fixed) && fixed > 0 ? fixed : column.getBoundingClientRect().width;
       total += w;
       column.style.boxSizing = "border-box";
       column.style.width = `${w}px`;
       column.style.minWidth = "0";
+      if (Number.isFinite(fixed) && fixed > 0) {
+        column.style.maxWidth = `${w}px`;
+      }
     }
     this.table.container.style.tableLayout = "fixed";
     this.table.container.style.width = `${total}px`;
@@ -634,10 +787,16 @@ var Resizable = class extends Cell {
   resizeEndCell() {
     this.resizingCells = null;
   }
+  isFixedWidthCell(el) {
+    if (!el) return false;
+    const fixed = Number(el.dataset["tableFixedWidth"]);
+    return Number.isFinite(fixed) && fixed > 0;
+  }
   hoverCellBorder(event) {
     if (this.resizingCells) {
       const { left, right } = this.resizingCells;
       if (!left || !right) return;
+      if (this.isFixedWidthCell(left) || this.isFixedWidthCell(right)) return;
       const leftWidth = left.offsetWidth + event.movementX;
       const rightWidth = right.offsetWidth - event.movementX;
       if (leftWidth <= 30 || rightWidth <= 30) return;
