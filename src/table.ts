@@ -227,18 +227,10 @@ export class Table {
       "thead tr",
     );
     if (!headerRow) return;
-    // Measure with subpixel precision, then apply with border-box so the visual
-    // width is preserved as closely as possible regardless of box-sizing.
-    // Fixed columns always use the declared px value (column.width / map), not
-    // the measured size — otherwise reset() wiping style.width loses the intent.
-    //
-    // Important: do NOT shrink the table to sum(column widths) when the parent
-    // is wider (e.g. Bootstrap .w-100 / modal body). That makes the whole table
-    // look "collapsed". Always use width:100% and only hard-pin fixed columns;
-    // other columns share the remaining space under table-layout:fixed.
-    // Locking flexible columns to px while the table is later forced to 100%
-    // (Bootstrap .w-100 !important) causes proportional scaling of ALL columns,
-    // including the intended 32px toolbar column.
+
+    // Measure with subpixel precision. Fixed columns always use the declared
+    // px value (column.width / map), not the measured size — otherwise
+    // Resizable.reset() wiping style.width loses the author's intent.
     const ths = headerRow.cells;
     const visibleColumns = this.getVisibleColumns();
     const widths: number[] = [];
@@ -251,73 +243,66 @@ export class Table {
       widths.push(w);
     }
 
+    const totalWidth = widths.reduce((a, b) => a + b, 0);
     const parentWidth =
       this.container.parentElement?.getBoundingClientRect().width ?? 0;
-    const laidOut = parentWidth > 0 ||
-      this.container.getBoundingClientRect().width > 0;
+    const selfWidth = this.container.getBoundingClientRect().width;
+    const laidOut = parentWidth > 0 || selfWidth > 0;
+
+    // When the sum of preferred column widths exceeds the parent, size the
+    // table to that sum so .table-responsive can show a horizontal scrollbar.
+    // Otherwise keep width:100% so flexible columns absorb leftover space
+    // (Bootstrap .w-100 is !important and would override a px width anyway).
+    const needsOverflow = laidOut && parentWidth > 0 &&
+      totalWidth > parentWidth;
 
     this.container.style.tableLayout = "fixed";
-    // Prefer 100% always so flexible columns absorb leftover space. Bootstrap
-    // .w-100 is !important and would override a px width anyway.
-    this.container.style.width = "100%";
+    this.container.style.width = needsOverflow ? `${totalWidth}px` : "100%";
 
-    // <colgroup> pins fixed columns reliably; flexible columns stay unconstrained
-    // so leftover space is distributed when the table is width:100%.
+    // <colgroup> pins widths reliably. On overflow every column is locked;
+    // otherwise only fixed columns are constrained so flexible ones share space.
     this.container.querySelector("colgroup")?.remove();
     const colgroup = document.createElement("colgroup");
     for (let i = 0; i < widths.length; i++) {
       const col = document.createElement("col");
       const fixed = this.getFixedColumnWidth(visibleColumns[i]);
-      if (fixed !== null) {
-        col.style.setProperty("width", `${fixed}px`, "important");
-        col.style.setProperty("min-width", `${fixed}px`, "important");
-        col.style.setProperty("max-width", `${fixed}px`, "important");
+      if (needsOverflow || fixed !== null) {
+        const w = fixed ?? widths[i];
+        col.style.setProperty("width", `${w}px`, "important");
+        col.style.setProperty("min-width", `${w}px`, "important");
+        col.style.setProperty("max-width", `${w}px`, "important");
       }
       colgroup.appendChild(col);
     }
     this.container.insertBefore(colgroup, this.container.firstChild);
 
-    // Pin cells: hard constraints only on fixed columns.
-    const headerRows = this.container.querySelectorAll<HTMLTableRowElement>(
-      "thead tr",
-    );
-    for (let r = 0; r < headerRows.length; r++) {
-      const cells = headerRows[r].cells;
-      for (let i = 0; i < cells.length; i++) {
-        const fixed = this.getFixedColumnWidth(visibleColumns[i]);
-        const cell = cells[i] as HTMLTableCellElement;
-        if (fixed !== null) {
-          this.applyWidthToCell(cell, fixed, true);
-        } else {
-          cell.style.boxSizing = "border-box";
-          cell.style.minWidth = "0";
-          cell.style.maxWidth = "";
-          cell.style.width = "";
+    const applyRow = (rows: NodeListOf<HTMLTableRowElement>) => {
+      for (let r = 0; r < rows.length; r++) {
+        const cells = rows[r].cells;
+        for (let i = 0; i < cells.length; i++) {
+          const fixed = this.getFixedColumnWidth(visibleColumns[i]);
+          const cell = cells[i] as HTMLTableCellElement;
+          if (needsOverflow || fixed !== null) {
+            this.applyWidthToCell(cell, fixed ?? widths[i], true);
+          } else {
+            cell.style.boxSizing = "border-box";
+            cell.style.minWidth = "0";
+            cell.style.maxWidth = "";
+            cell.style.width = "";
+          }
         }
       }
-    }
+    };
 
-    const bodyRows = this.container.querySelectorAll<HTMLTableRowElement>(
-      "tbody tr",
+    applyRow(
+      this.container.querySelectorAll<HTMLTableRowElement>("thead tr"),
     );
-    for (let r = 0; r < bodyRows.length; r++) {
-      const cells = bodyRows[r].cells;
-      for (let i = 0; i < cells.length; i++) {
-        const fixed = this.getFixedColumnWidth(visibleColumns[i]);
-        const cell = cells[i] as HTMLTableCellElement;
-        if (fixed !== null) {
-          this.applyWidthToCell(cell, fixed, true);
-        } else {
-          cell.style.minWidth = "0";
-          cell.style.maxWidth = "";
-          cell.style.width = "";
-        }
-      }
-    }
+    applyRow(
+      this.container.querySelectorAll<HTMLTableRowElement>("tbody tr"),
+    );
 
     // If we preserved while hidden (modal not yet shown), watch for layout and
-    // re-apply once the table is actually visible — that is the moment the
-    // 32px toolbar column would otherwise stay content-sized until sort/filter.
+    // re-apply once the table is actually visible.
     if (!laidOut) {
       this.ensureLayoutObserver();
     }
