@@ -646,12 +646,15 @@ export class Table {
     this.filteredData = this.computeFilteredData();
     this.invalidateDisplayCache();
     this.updateSearchInputValidity();
-    this.preserveColumnWidths();
     if (this.pagination) {
       this.pagination.currentPage = 1;
       this.pagination.render();
     }
     this.updateTbody();
+    // Data shape changed: drop stale locked widths, reflow under auto layout,
+    // then re-pin so columns match current content instead of showing excess
+    // ellipsis from the previous width snapshot.
+    this.resetColumnWidths();
   }
 
   private getColumnDatalistValues(columnId: ColumnId): string[] {
@@ -711,12 +714,13 @@ export class Table {
     this.invalidateDisplayCache();
     this.updateSearchInputValidity();
     this.updateSearchDatalists();
-    this.preserveColumnWidths();
     if (this.pagination) {
       this.pagination.currentPage = 1;
       this.pagination.render();
     }
     this.updateTbody();
+    // Same as applyFilters — new rows can change intrinsic column sizes.
+    this.resetColumnWidths();
   }
 
   setFilter(columnId: ColumnId, keyword: string): void {
@@ -1036,15 +1040,20 @@ export class Resizable extends Cell implements Plugin {
   reset(): void {
     this.table.container.style.tableLayout = "auto";
     this.table.container.style.width = "";
-    const headers = this.table.container.querySelectorAll<HTMLTableCellElement>(
-      "thead th",
+    this.table.container.style.minWidth = "";
+    // Stale <colgroup> keeps previous px widths even under table-layout:auto.
+    this.table.container.querySelector("colgroup")?.remove();
+
+    const cells = this.table.container.querySelectorAll<HTMLTableCellElement>(
+      "th, td",
     );
-    for (let i = 0; i < headers.length; i++) {
-      const th = headers[i];
-      th.style.boxSizing = "";
-      th.style.width = "";
-      th.style.minWidth = "";
-      th.style.maxWidth = "";
+    for (let i = 0; i < cells.length; i++) {
+      const cell = cells[i];
+      // removeProperty is required — widths were set with setProperty(..., "important").
+      cell.style.removeProperty("box-sizing");
+      cell.style.removeProperty("width");
+      cell.style.removeProperty("min-width");
+      cell.style.removeProperty("max-width");
     }
   }
 
