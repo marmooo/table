@@ -116,54 +116,46 @@ var Table = class _Table {
       const w = fixed ?? (measured > 0 ? measured : 80);
       widths.push(w);
     }
+    const totalWidth = widths.reduce((a, b) => a + b, 0);
     const parentWidth = this.container.parentElement?.getBoundingClientRect().width ?? 0;
-    const laidOut = parentWidth > 0 || this.container.getBoundingClientRect().width > 0;
+    const selfWidth = this.container.getBoundingClientRect().width;
+    const laidOut = parentWidth > 0 || selfWidth > 0;
+    const needsOverflow = laidOut && parentWidth > 0 && totalWidth > parentWidth;
     this.container.style.tableLayout = "fixed";
-    this.container.style.width = "100%";
+    this.container.style.width = needsOverflow ? `${totalWidth}px` : "100%";
     this.container.querySelector("colgroup")?.remove();
     const colgroup = document.createElement("colgroup");
     for (let i = 0; i < widths.length; i++) {
       const col = document.createElement("col");
       const fixed = this.getFixedColumnWidth(visibleColumns[i]);
-      if (fixed !== null) {
-        col.style.setProperty("width", `${fixed}px`, "important");
-        col.style.setProperty("min-width", `${fixed}px`, "important");
-        col.style.setProperty("max-width", `${fixed}px`, "important");
+      if (needsOverflow || fixed !== null) {
+        const w = fixed ?? widths[i];
+        col.style.setProperty("width", `${w}px`, "important");
+        col.style.setProperty("min-width", `${w}px`, "important");
+        col.style.setProperty("max-width", `${w}px`, "important");
       }
       colgroup.appendChild(col);
     }
     this.container.insertBefore(colgroup, this.container.firstChild);
-    const headerRows = this.container.querySelectorAll("thead tr");
-    for (let r = 0; r < headerRows.length; r++) {
-      const cells = headerRows[r].cells;
-      for (let i = 0; i < cells.length; i++) {
-        const fixed = this.getFixedColumnWidth(visibleColumns[i]);
-        const cell = cells[i];
-        if (fixed !== null) {
-          this.applyWidthToCell(cell, fixed, true);
-        } else {
-          cell.style.boxSizing = "border-box";
-          cell.style.minWidth = "0";
-          cell.style.maxWidth = "";
-          cell.style.width = "";
+    const applyRow = (rows) => {
+      for (let r = 0; r < rows.length; r++) {
+        const cells = rows[r].cells;
+        for (let i = 0; i < cells.length; i++) {
+          const fixed = this.getFixedColumnWidth(visibleColumns[i]);
+          const cell = cells[i];
+          if (needsOverflow || fixed !== null) {
+            this.applyWidthToCell(cell, fixed ?? widths[i], true);
+          } else {
+            cell.style.boxSizing = "border-box";
+            cell.style.minWidth = "0";
+            cell.style.maxWidth = "";
+            cell.style.width = "";
+          }
         }
       }
-    }
-    const bodyRows = this.container.querySelectorAll("tbody tr");
-    for (let r = 0; r < bodyRows.length; r++) {
-      const cells = bodyRows[r].cells;
-      for (let i = 0; i < cells.length; i++) {
-        const fixed = this.getFixedColumnWidth(visibleColumns[i]);
-        const cell = cells[i];
-        if (fixed !== null) {
-          this.applyWidthToCell(cell, fixed, true);
-        } else {
-          cell.style.minWidth = "0";
-          cell.style.maxWidth = "";
-          cell.style.width = "";
-        }
-      }
-    }
+    };
+    applyRow(this.container.querySelectorAll("thead tr"));
+    applyRow(this.container.querySelectorAll("tbody tr"));
     if (!laidOut) {
       this.ensureLayoutObserver();
     }
@@ -324,6 +316,7 @@ var Table = class _Table {
         cell.style.overflow = "hidden";
         cell.style.textOverflow = "ellipsis";
       } else if (tagName === "th") {
+        cell.style.whiteSpace = "nowrap";
         cell.style.overflow = "hidden";
       }
       if (isHeaderRow && this.isColumnObjectSortable(column)) {
@@ -445,12 +438,12 @@ var Table = class _Table {
     this.filteredData = this.computeFilteredData();
     this.invalidateDisplayCache();
     this.updateSearchInputValidity();
-    this.preserveColumnWidths();
     if (this.pagination) {
       this.pagination.currentPage = 1;
       this.pagination.render();
     }
     this.updateTbody();
+    this.resetColumnWidths();
   }
   getColumnDatalistValues(columnId) {
     const data = this.options.data;
@@ -500,12 +493,12 @@ var Table = class _Table {
     this.invalidateDisplayCache();
     this.updateSearchInputValidity();
     this.updateSearchDatalists();
-    this.preserveColumnWidths();
     if (this.pagination) {
       this.pagination.currentPage = 1;
       this.pagination.render();
     }
     this.updateTbody();
+    this.resetColumnWidths();
   }
   setFilter(columnId, keyword) {
     this.filters[columnId] = keyword;
@@ -736,13 +729,15 @@ var Resizable = class extends Cell {
   reset() {
     this.table.container.style.tableLayout = "auto";
     this.table.container.style.width = "";
-    const headers = this.table.container.querySelectorAll("thead th");
-    for (let i = 0; i < headers.length; i++) {
-      const th = headers[i];
-      th.style.boxSizing = "";
-      th.style.width = "";
-      th.style.minWidth = "";
-      th.style.maxWidth = "";
+    this.table.container.style.minWidth = "";
+    this.table.container.querySelector("colgroup")?.remove();
+    const cells = this.table.container.querySelectorAll("th, td");
+    for (let i = 0; i < cells.length; i++) {
+      const cell = cells[i];
+      cell.style.removeProperty("box-sizing");
+      cell.style.removeProperty("width");
+      cell.style.removeProperty("min-width");
+      cell.style.removeProperty("max-width");
     }
   }
   setPointerStyle(event, cell) {
