@@ -513,8 +513,9 @@ export class Table {
         cell.style.overflow = "hidden";
         cell.style.textOverflow = "ellipsis";
       } else if (tagName === "th") {
-        // Header text should also clip under fixed layout so it cannot block shrink.
+        cell.style.whiteSpace = "nowrap";
         cell.style.overflow = "hidden";
+        // cell.style.textOverflow = "ellipsis";
       }
       if (isHeaderRow && this.isColumnObjectSortable(column)) {
         cell.tabIndex = 0;
