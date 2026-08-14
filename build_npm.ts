@@ -14,7 +14,7 @@ await build({
   },
   package: {
     name: "@marmooo/table",
-    version: "0.0.5",
+    version: "0.0.6",
     description: "A dependency-free HTML <table> library.",
     license: "MIT",
     repository: {
